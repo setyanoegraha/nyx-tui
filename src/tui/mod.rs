@@ -2,13 +2,11 @@
 //! loop. Rendering lives in `render.rs`; all state transitions here are pure
 //! and unit-tested. UI text is in English.
 
-pub mod downloads;
 pub mod render;
 
 use std::time::Duration;
 
 use anyhow::Result;
-use std::path::PathBuf;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::modules::leaderboard::{compute, position_of};
@@ -18,10 +16,6 @@ use crate::modules::writeups::WriteupEntry;
 /// What a popup asks the user for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupKind {
-    /// Machine download destination input (Máquinas).
-    Descarga,
-    /// CAPTCHA code input for a pending download.
-    Captcha,
     /// First-blood flag input (User / Root MD5 fields as slots allow).
     Flag,
     /// Writeup submission (URL, type, language).
@@ -46,12 +40,8 @@ pub struct Popup {
     pub readonly: bool,
     /// Body text for read-only popups (descripción).
     pub text: Option<String>,
-    /// Path-completion candidates for the Descarga popup (Tab).
-    pub completions: Vec<String>,
     /// Flag slot types parallel to `buffers` ("user" / "root").
     pub flag_types: Vec<&'static str>,
-    /// ASCII art lines for the Captcha popup.
-    pub captcha_lines: Vec<String>,
 }
 
 impl Popup {
@@ -59,15 +49,12 @@ impl Popup {
         if let Some(buffer) = self.buffers.get_mut(self.field) {
             buffer.push(c);
         }
-        // Typing invalidates a previous completion listing.
-        self.completions.clear();
     }
 
     pub fn pop(&mut self) {
         if let Some(buffer) = self.buffers.get_mut(self.field) {
             buffer.pop();
         }
-        self.completions.clear();
     }
 
     pub fn next_field(&mut self) {
@@ -81,99 +68,6 @@ impl Popup {
             self.field = (self.field + self.buffers.len() - 1) % self.buffers.len();
         }
     }
-
-    /// zsh-style destination completion for the Descarga popup: `Tab`
-    /// expands `~`, completes the last path component against the parent
-    /// directory's subdirectories (common prefix first) and stores the
-    /// candidate list so the popup can display it.
-    pub fn complete_destination(&mut self) {
-        let Some(buffer) = self.buffers.get_mut(0) else {
-            return;
-        };
-        let raw = buffer.clone();
-        let expanded = expand_tilde(&raw);
-        let ends_with_sep = raw.ends_with('/');
-        // A trailing separator means "complete inside this directory": the
-        // partial component is empty even though Path::file_name would
-        // still report one.
-        let (parent, partial) = if ends_with_sep {
-            (expanded.clone(), String::new())
-        } else {
-            split_parent_partial(&expanded)
-        };
-
-        let mut matches: Vec<String> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&parent) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !partial.is_empty() && !name.starts_with(partial.as_str()) {
-                    continue;
-                }
-                // Skip hidden dirs unless the user typed the dot herself.
-                if name.starts_with('.') && (partial.is_empty() || !partial.starts_with('.')) {
-                    continue;
-                }
-                if entry.path().is_dir() {
-                    matches.push(name);
-                }
-            }
-        }
-        matches.sort();
-        if matches.is_empty() {
-            self.completions.clear();
-            return;
-        }
-
-        let completed = common_prefix(&matches);
-        // Replace the partial component with the completed prefix, keeping
-        // the original `~` spelling the user typed.
-        let mut new_raw = raw[..raw.len().saturating_sub(partial.chars().count())].to_string();
-        new_raw.push_str(&completed);
-        if matches.len() == 1 && completed == matches[0] && !ends_with_sep {
-            new_raw.push(std::path::MAIN_SEPARATOR);
-        }
-        *buffer = new_raw;
-        self.completions = matches;
-    }
-}
-
-/// `~` and `~/...` expand to the user's home directory.
-fn expand_tilde(raw: &str) -> PathBuf {
-    if raw == "~" {
-        return home::home_dir().unwrap_or_else(|| PathBuf::from(raw));
-    }
-    if let Some(rest) = raw.strip_prefix("~/") {
-        if let Some(home) = home::home_dir() {
-            return home.join(rest);
-        }
-    }
-    PathBuf::from(raw)
-}
-
-/// Splits an expanded path into (parent directory, last component); paths
-/// ending in a separator (or the filesystem root) complete with no partial.
-fn split_parent_partial(expanded: &std::path::Path) -> (PathBuf, String) {
-    if expanded.as_os_str().is_empty() {
-        return (PathBuf::from("."), String::new());
-    }
-    match (expanded.parent(), expanded.file_name()) {
-        (Some(parent), Some(name)) => (parent.to_path_buf(), name.to_string_lossy().to_string()),
-        _ => (expanded.to_path_buf(), String::new()),
-    }
-}
-
-/// Longest prefix shared by every candidate.
-fn common_prefix(items: &[String]) -> String {
-    let mut prefix = items[0].clone();
-    for item in &items[1..] {
-        while !item.starts_with(&prefix) {
-            prefix.pop();
-            if prefix.is_empty() {
-                return prefix;
-            }
-        }
-    }
-    prefix
 }
 
 /// A user action queued from a popup, executed by the host application.
@@ -332,23 +226,14 @@ pub enum InputMode {
     Filter,
 }
 
-/// Overlay listing background download jobs (`o` toggles it).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewMode {
-    Normal,
-    Downloads,
-}
-
 pub struct AppState {
     pub tab: Tab,
     pub input_mode: InputMode,
-    pub view: ViewMode,
     pub filter: String,
     pub selected: usize,
     pub scroll: usize,
     pub machine_sort: MachineSort,
     pub only_first_blood: bool,
-    pub quit_warned: bool,
     pub quit: bool,
     pub refresh_requested: bool,
     pub fetching: Option<String>,
@@ -356,9 +241,6 @@ pub struct AppState {
     pub status_expiry: Option<std::time::Instant>,
     pub popup: Option<Popup>,
     pub pending_action: Option<TuiAction>,
-    pub pending_download: Option<(String, String, PathBuf)>,
-    pub download_queue: std::collections::VecDeque<(String, String, PathBuf)>,
-    pub download_jobs: Vec<std::sync::Arc<downloads::DownloadJob>>,
     pub report: Option<ActionReport>,
     pub writeups_popup: Option<WriteupsPopup>,
     pub pending_refresh_after_close: bool,
@@ -374,13 +256,11 @@ impl AppState {
         Self {
             tab: Tab::Machines,
             input_mode: InputMode::Normal,
-            view: ViewMode::Normal,
             filter: String::new(),
             selected: 0,
             scroll: 0,
             machine_sort: MachineSort::default(),
             only_first_blood: false,
-            quit_warned: false,
             quit: false,
             refresh_requested: false,
             fetching: None,
@@ -388,9 +268,6 @@ impl AppState {
             status_expiry: None,
             popup: None,
             pending_action: None,
-            pending_download: None,
-            download_queue: std::collections::VecDeque::new(),
-            download_jobs: Vec::new(),
             report: None,
             writeups_popup: None,
             pending_refresh_after_close: false,
@@ -406,46 +283,7 @@ impl AppState {
         state
     }
 
-    /// Number of background downloads still running.
-    pub fn active_downloads(&self) -> usize {
-        self.download_jobs.iter().filter(|job| job.is_active()).count()
-    }
-
-    /// Toggles the downloads overlay; harmless while popups are open.
-    pub fn toggle_downloads_view(&mut self) {
-        if self.popup.is_none() && self.report.is_none() {
-            self.view = match self.view {
-                ViewMode::Normal => ViewMode::Downloads,
-                ViewMode::Downloads => ViewMode::Normal,
-            };
-        }
-    }
-
-    /// Index of the newest active download (cancel target in the overlay).
-    pub fn download_selected(&self) -> usize {
-        self.download_jobs
-            .iter()
-            .rposition(|job| job.is_active())
-            .unwrap_or(self.download_jobs.len().saturating_sub(1))
-    }
-
-    /// First `q` with active downloads warns instead of quitting.
     pub fn request_quit(&mut self) {
-        let active = self.active_downloads();
-        if active > 0 && !self.quit_warned {
-            self.quit_warned = true;
-            let jobs: Vec<String> = self
-                .download_jobs
-                .iter()
-                .filter(|job| job.is_active())
-                .map(|job| format!("↓ {}", job.machine))
-                .collect();
-            self.set_status(format!(
-                "{active} download(s) active — press q again to abort: {}",
-                jobs.join(" · ")
-            ));
-            return;
-        }
         self.quit = true;
     }
 
@@ -501,7 +339,9 @@ impl AppState {
                     || m.difficulty.to_lowercase().contains(&needle)
                     || m.os.to_lowercase().contains(&needle)
                     || m.creator.to_lowercase().contains(&needle)
-                    || m.tech_tags.iter().any(|t| t.to_lowercase().contains(&needle)))
+                    || m.tech_tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&needle)))
                     && (!self.only_first_blood || m.any_slot_open())
             })
             .collect();
@@ -511,8 +351,9 @@ impl AppState {
             MachineSort::Fecha => machines.sort_by_key(|m| {
                 std::cmp::Reverse(crate::modules::machines::release_sort_key(&m.release_date))
             }),
-            MachineSort::Dificultad => machines
-                .sort_by_key(|m| crate::modules::machines::difficulty_rank(&m.difficulty)),
+            MachineSort::Dificultad => {
+                machines.sort_by_key(|m| crate::modules::machines::difficulty_rank(&m.difficulty))
+            }
         }
         machines
     }
@@ -576,8 +417,6 @@ impl AppState {
             ),
             readonly: false,
             text: None,
-            completions: Vec::new(),
-            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -629,8 +468,6 @@ impl AppState {
             notice: None,
             readonly: true,
             text: Some(text),
-            completions: Vec::new(),
-            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -679,7 +516,11 @@ impl AppState {
             self.set_status("Nothing selected.");
             return;
         };
-        if crate::config::ConfigManager::new().username().trim().is_empty() {
+        if crate::config::ConfigManager::new()
+            .username()
+            .trim()
+            .is_empty()
+        {
             self.set_status("Set your username first (a).");
             return;
         }
@@ -692,8 +533,6 @@ impl AppState {
             notice: None,
             readonly: false,
             text: None,
-            completions: Vec::new(),
-            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -713,7 +552,11 @@ impl AppState {
             self.set_status("Nothing selected.");
             return;
         };
-        if crate::config::ConfigManager::new().username().trim().is_empty() {
+        if crate::config::ConfigManager::new()
+            .username()
+            .trim()
+            .is_empty()
+        {
             self.set_status("Set your username first (a).");
             return;
         }
@@ -770,18 +613,12 @@ impl AppState {
             notice,
             readonly: false,
             text: None,
-            completions: Vec::new(),
-            captcha_lines: Vec::new(),
             flag_types,
         });
     }
 
-    /// Opens the download destination popup (`d`, Machines) with zsh-style
-    /// Tab completion.
-    pub fn open_download_popup(&mut self) {
-        if self.popup.is_some() || self.report.is_some() {
-            return;
-        }
+    /// Opens the VulnyX download page in the browser (`d`, Machines).
+    pub fn open_download_page(&mut self) {
         if self.tab != Tab::Machines {
             self.set_status("Downloads are only available on the Machines tab.");
             return;
@@ -790,21 +627,15 @@ impl AppState {
             self.set_status("Nothing selected.");
             return;
         };
-        let prefill = crate::config::ConfigManager::new()
-            .download_dir()
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        self.popup = Some(Popup {
-            kind: PopupKind::Descarga,
-            machine: machine.name.clone(),
-            machine_slug: machine.slug.clone(),
-            buffers: vec![prefill.display().to_string()],
-            field: 0,
-            notice: None,
-            readonly: false,
-            text: None,
-            completions: Vec::new(),
-            captcha_lines: Vec::new(),
-            flag_types: Vec::new(),
+        let url = format!("https://vulnyx.com/download.php?vm={}", machine.name);
+        let opened = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        self.set_status(match opened {
+            Ok(_) => format!("[↓] Download page opened: {url}"),
+            Err(error) => format!("xdg-open failed: {error}"),
         });
     }
 
@@ -833,48 +664,6 @@ impl AppState {
                     return;
                 }
                 self.set_status(format!("[✓] Username set to {username}."));
-            }
-            PopupKind::Descarga => {
-                let dir = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
-                if dir.is_empty() {
-                    self.popup = Some(popup);
-                    self.set_status("Indicate the destination directory.");
-                    return;
-                }
-                let entry = (popup.machine.clone(), popup.machine_slug.clone(), PathBuf::from(dir));
-                let machine = entry.0.clone();
-                // Two concurrent downloads of the same machine into the same
-                // folder would corrupt the shared staging file — refuse.
-                let duplicate = self.download_jobs.iter().any(|job| {
-                    job.is_active() && job.machine == machine && job.dest_dir == entry.2
-                });
-                if duplicate {
-                    self.set_status(format!(
-                        "[↓] {machine} is already downloading into that folder."
-                    ));
-                    return;
-                }
-                self.pending_download = Some(entry);
-                self.set_status(format!("[↓] Download of {machine} started."));
-            }
-            PopupKind::Captcha => {
-                let code = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
-                let code = code.to_uppercase();
-                if code.len() != 5 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    self.popup = Some(popup);
-                    self.set_status("The code is 5 characters (A-Z, 0-9).");
-                    return;
-                }
-                let Some(job) = self
-                    .download_jobs
-                    .iter()
-                    .find(|j| j.is_awaiting_captcha() && j.machine == popup.machine)
-                else {
-                    self.set_status("No captcha pending for that machine.");
-                    return;
-                };
-                job.submit_code(code);
-                self.set_status("[↓] Code accepted — downloading.");
             }
             PopupKind::Flag => {
                 // values carry "type:md5" — validate each and queue.
@@ -935,7 +724,10 @@ impl AppState {
     fn row_count(&self) -> usize {
         match self.tab {
             Tab::Machines => self.visible_machines().len(),
-            Tab::Progress => self.data.own_writeups(&crate::config::ConfigManager::new().username()).len(),
+            Tab::Progress => self
+                .data
+                .own_writeups(&crate::config::ConfigManager::new().username())
+                .len(),
         }
     }
 
@@ -1004,14 +796,9 @@ impl AppState {
     }
 }
 
-
-impl AppState {
-}
-
 /// Host-provided callbacks the event loop calls synchronously (blocking the
 /// render thread for the duration of each network call).
 pub struct Host<'a> {
-    pub client: crate::modules::session::NyxClient,
     pub refetch: &'a dyn Fn() -> Result<TuiData>,
     pub run_action: &'a dyn Fn(TuiAction) -> Result<ActionReport>,
     /// Set when the next loop iteration must (re)fetch all data; `run()`
@@ -1046,50 +833,13 @@ fn event_loop(
 
         app.tick();
 
-        // Start queued/pending downloads as slots free up.
-        if let Some((machine, slug, dir)) = app.pending_download.take() {
-            match downloads::start_download(
-                host.client.clone(),
-                machine.clone(),
-                slug,
-                dir.clone(),
-            ) {
-                Ok(job) => {
-                    app.download_jobs.push(std::sync::Arc::new(job));
-                    app.set_status(format!(
-                        "[↓] Download of {machine} started — the captcha image was opened."
-                    ));
-                }
-                Err(error) => app.set_status(format!("Download failed: {error:#}")),
-            }
-        }
-        if app.active_downloads() < downloads::PARALLEL_DOWNLOADS {
-            while let Some((machine, slug, dir)) = app.download_queue.pop_front() {
-                match downloads::start_download(
-                    host.client.clone(),
-                    machine.clone(),
-                    slug,
-                    dir.clone(),
-                ) {
-                    Ok(job) => {
-                        app.download_jobs.push(std::sync::Arc::new(job));
-                        app.set_status(format!(
-                            "[↓] Download of {machine} started — the captcha image was opened."
-                        ));
-                    }
-                    Err(error) => app.set_status(format!("Download failed: {error:#}")),
-                }
-                if app.active_downloads() >= downloads::PARALLEL_DOWNLOADS {
-                    break;
-                }
-            }
-        }
-
         // User actions from popups (submit flag, submit writeup).
         if let Some(action) = app.pending_action.take() {
             let label = match action.kind {
                 ActionKind::SubmitFlag => format!("Submitting flag for {}...", action.machine),
-                ActionKind::SubmitWriteup => format!("Submitting writeup for {}...", action.machine),
+                ActionKind::SubmitWriteup => {
+                    format!("Submitting writeup for {}...", action.machine)
+                }
             };
             app.fetching = Some(label);
             terminal.draw(|frame| crate::tui::render::draw(frame, app))?;
@@ -1103,39 +853,6 @@ fn event_loop(
                 Err(error) => app.set_status(format!("Action failed: {error:#}")),
             }
             app.fetching = None;
-        }
-
-        // Captcha popups for downloads waiting for a code: render the
-        // captcha as ASCII art inside the popup so the user can read it
-        // without leaving the terminal.
-        if app.popup.is_none() && app.report.is_none() && app.writeups_popup.is_none() {
-            if let Some(job) = app
-                .download_jobs
-                .iter()
-                .find(|job| job.is_awaiting_captcha())
-            {
-                let captcha_path = job.state.lock().unwrap().captcha_path.clone();
-                if let Some(path) = captcha_path {
-                    if let Ok(png) = std::fs::read(&path) {
-                        let ascii_lines =
-                            crate::captcha::render_ascii(&png).unwrap_or_default();
-                        let machine = job.machine.clone();
-                        app.popup = Some(Popup {
-                            kind: PopupKind::Captcha,
-                            machine,
-                            machine_slug: String::new(),
-                            buffers: vec![String::new()],
-                            field: 0,
-                            notice: None,
-                            readonly: false,
-                            text: None,
-                            completions: Vec::new(),
-                                        flag_types: Vec::new(),
-                            captcha_lines: ascii_lines,
-                        });
-                    }
-                }
-            }
         }
 
         if app.should_fetch(host.pending_fetch) {
@@ -1158,13 +875,6 @@ fn event_loop(
         }
 
         if app.quit {
-            // Abort active tasks and clean their staged `.part` files.
-            for job in &app.download_jobs {
-                if job.is_active() {
-                    job.request_cancel();
-                    job.remove_part();
-                }
-            }
             return Ok(());
         }
     }
@@ -1221,30 +931,6 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
         return;
     }
 
-    // Captcha popup captures everything until the code is submitted.
-    if app.popup.as_ref().map(|p| p.kind) == Some(PopupKind::Captcha) {
-        match key.code {
-            KeyCode::Esc => {
-                app.popup = None;
-                app.set_status("Captcha dismissed — the download stays paused.");
-                // Reopen on the next loop iteration (the job is still waiting).
-            }
-            KeyCode::Enter => app.confirm_popup(),
-            KeyCode::Backspace => {
-                if let Some(popup) = app.popup.as_mut() {
-                    popup.pop();
-                }
-            }
-            KeyCode::Char(c) => {
-                if let Some(popup) = app.popup.as_mut() {
-                    popup.push(c);
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
-
     // Generic popup input mode captures everything first.
     if app.popup.is_some() {
         if app.popup.as_ref().map(|p| p.readonly) == Some(true) {
@@ -1266,14 +952,8 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 }
             }
             KeyCode::Tab => {
-                let is_path_popup = app.popup.as_ref().map(|p| p.kind)
-                    == Some(PopupKind::Descarga);
                 if let Some(popup) = app.popup.as_mut() {
-                    if is_path_popup {
-                        popup.complete_destination();
-                    } else {
-                        popup.next_field();
-                    }
+                    popup.next_field();
                 }
             }
             KeyCode::Down => {
@@ -1317,14 +997,13 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             KeyCode::Home | KeyCode::Char('g') => app.move_start(),
             KeyCode::Char('/') => app.enter_filter_mode(),
             KeyCode::Char('a') => app.open_username_popup(),
-            KeyCode::Char('o') => app.toggle_downloads_view(),
             KeyCode::Char('s') => {
                 if app.tab == Tab::Machines {
                     app.machine_sort = app.machine_sort.next();
                     app.reset_list_position();
                 }
             }
-            KeyCode::Char('d') => app.open_download_popup(),
+            KeyCode::Char('d') => app.open_download_page(),
             KeyCode::Char('f') => app.open_flag_popup(),
             KeyCode::Char('w') => app.open_writeups_popup(),
             KeyCode::Char('u') => app.open_writeup_submit_popup(),
@@ -1333,12 +1012,6 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 app.reset_list_position();
             }
             KeyCode::Char('i') => app.open_descripcion_popup(),
-            KeyCode::Char('c') if app.view == ViewMode::Downloads => {
-                if let Some(job) = app.download_jobs.iter().rev().find(|job| job.is_active()) {
-                    job.request_cancel();
-                    app.set_status(format!("Cancelling {}...", job.machine));
-                }
-            }
             KeyCode::Enter => match app.tab {
                 Tab::Machines => app.open_descripcion_popup(),
                 Tab::Progress => app.open_selected_writeup_link(),

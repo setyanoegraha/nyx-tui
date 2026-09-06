@@ -1,10 +1,10 @@
-//! Local preferences: the self-declared username (used for flag & writeup
-//! submissions and for computing your leaderboard position) and the last
-//! download folder, stored in ~/.nyx-tui/config.json. VulnyX has no accounts
-//! and no passwords — nothing sensitive is stored here.
+//! Local preference: the self-declared username (used for flag & writeup
+//! submissions and for computing your leaderboard position), stored in
+//! ~/.nyx-tui/config.json. VulnyX has no accounts and no passwords — nothing
+//! sensitive is stored here.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -16,8 +16,6 @@ const CONFIG_FILE_NAME: &str = "config.json";
 struct ConfigFile {
     #[serde(default)]
     username: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    download_dir: Option<String>,
 }
 
 pub struct ConfigManager {
@@ -47,29 +45,10 @@ impl ConfigManager {
             .unwrap_or_default()
     }
 
-    /// Persists the username, preserving other fields.
+    /// Persists the username.
     pub fn save_username(&self, username: &str) -> Result<()> {
         let cfg = ConfigFile {
             username: username.trim().to_string(),
-            download_dir: self.read_config().and_then(|c| c.download_dir),
-        };
-        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
-            .with_context(|| "Failed to write the configuration file")?;
-        Ok(())
-    }
-
-    /// Last download directory the user chose (survives restarts).
-    pub fn download_dir(&self) -> Option<PathBuf> {
-        self.read_config()
-            .and_then(|cfg| cfg.download_dir)
-            .map(PathBuf::from)
-    }
-
-    /// Persists the chosen download directory, preserving other fields.
-    pub fn save_download_dir(&self, dir: &Path) -> Result<()> {
-        let cfg = ConfigFile {
-            username: self.username(),
-            download_dir: Some(dir.display().to_string()),
         };
         fs::write(&self.config_file, serde_json::to_string(&cfg)?)
             .with_context(|| "Failed to write the configuration file")?;

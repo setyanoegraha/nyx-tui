@@ -27,7 +27,6 @@ pub fn compute(
     let mut scores: std::collections::HashMap<String, LeaderboardEntry> =
         std::collections::HashMap::new();
 
-
     for machine in machines {
         if !machine.creator.trim().is_empty() {
             let e = entry(&mut scores, &machine.creator);

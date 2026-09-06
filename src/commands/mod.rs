@@ -29,7 +29,6 @@ pub async fn tui_cmd() -> Result<()> {
     };
 
     let mut host = crate::tui::Host {
-        client,
         refetch: &refetch,
         run_action: &run_action,
         pending_fetch: false,
@@ -43,10 +42,7 @@ pub async fn tui_cmd() -> Result<()> {
 async fn fetch_tui_data(client: &NyxClient) -> Result<TuiData> {
     let machines = MachineFetcher::new(client.clone()).fetch().await?;
     let writeups = WriteupManager::new(client.clone()).fetch_all().await?;
-    Ok(TuiData {
-        machines,
-        writeups,
-    })
+    Ok(TuiData { machines, writeups })
 }
 
 /// Executes a user action from a popup; returns the result popup content.
@@ -63,17 +59,12 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                     "user" => FlagType::User,
                     _ => FlagType::Root,
                 };
-                let message =
-                    FlagManager::new(client.clone())
-                        .submit(&action.machine, flag_type, &username, flag_value)
-                        .await?;
+                let message = FlagManager::new(client.clone())
+                    .submit(&action.machine, flag_type, &username, flag_value)
+                    .await?;
                 reports.push((
                     flag_type.as_str().to_string(),
-                    format!(
-                        "{} flag: ✓ ACCEPTED — {}",
-                        flag_type.as_str(),
-                        message
-                    ),
+                    format!("{} flag: ✓ ACCEPTED — {}", flag_type.as_str(), message),
                 ));
             }
             if reports.is_empty() {
@@ -101,13 +92,7 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
             let tipo = action.values[1].1.clone();
             let language = action.values[2].1.clone();
             let message = WriteupManager::new(client.clone())
-                .submit(
-                    &action.machine,
-                    &username,
-                    &url,
-                    &tipo,
-                    &language,
-                )
+                .submit(&action.machine, &username, &url, &tipo, &language)
                 .await?;
             Ok(ActionReport {
                 title: format!(" Writeup — {} ", action.machine),

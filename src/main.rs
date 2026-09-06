@@ -1,7 +1,5 @@
-mod captcha;
 mod commands;
 mod config;
-mod download;
 mod modules;
 mod tui;
 
@@ -42,7 +40,7 @@ fn print_help() {
     println!("  nyx --version  print the version");
     println!("  nyx --help     show this help");
     println!();
-    println!("Everything else lives inside the dashboard: machine catalog, downloads");
-    println!("(CAPTCHA-assisted), first-blood flags, writeups, ratings of the site data");
-    println!("and your leaderboard position — no account needed, just a username.");
+    println!("Everything else lives inside the dashboard: machine catalog, first-blood");
+    println!("flags, writeups, and your leaderboard position — no account needed, just a");
+    println!("username. Press `d` on a machine to open its download page in your browser.");
 }

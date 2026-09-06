@@ -67,15 +67,18 @@ impl FlagManager {
 /// fields; HTTP-level errors (429 rate limit) surface as connection errors
 /// upstream, so here we only interpret the body.
 pub fn parse_flag_response(body: &str) -> Result<String> {
-    let value: serde_json::Value = serde_json::from_str(body)
-        .unwrap_or(serde_json::Value::String(body.trim().to_string()));
+    let value: serde_json::Value =
+        serde_json::from_str(body).unwrap_or(serde_json::Value::String(body.trim().to_string()));
     if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
         let mut message = value
             .get("message")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("Flag accepted")
             .to_string();
-        if let Some(bonus) = value.get("first_blood_bonus").and_then(serde_json::Value::as_u64) {
+        if let Some(bonus) = value
+            .get("first_blood_bonus")
+            .and_then(serde_json::Value::as_u64)
+        {
             message.push_str(&format!(" (+{bonus} first blood bonus pts)"));
         }
         Ok(message)
@@ -95,10 +98,9 @@ mod tests {
 
     #[test]
     fn parse_flag_response_accepts_with_bonus() {
-        let message = parse_flag_response(
-            r#"{"ok":true,"message":"First blood!","first_blood_bonus":20}"#,
-        )
-        .unwrap();
+        let message =
+            parse_flag_response(r#"{"ok":true,"message":"First blood!","first_blood_bonus":20}"#)
+                .unwrap();
         assert!(message.contains("First blood!"));
         assert!(message.contains("+20"));
     }

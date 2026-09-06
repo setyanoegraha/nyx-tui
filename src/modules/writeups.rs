@@ -89,8 +89,8 @@ impl WriteupManager {
 /// VulnyX answers `{"ok": bool, "message"?: String}` (or an `error` string).
 /// Returns the server message when ok, else an error.
 pub fn parse_ok(body: &str, ok_message: &str) -> Result<String> {
-    let value: serde_json::Value = serde_json::from_str(body)
-        .unwrap_or(serde_json::Value::String(body.trim().to_string()));
+    let value: serde_json::Value =
+        serde_json::from_str(body).unwrap_or(serde_json::Value::String(body.trim().to_string()));
     if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
         Ok(value
             .get("message")

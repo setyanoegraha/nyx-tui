@@ -57,12 +57,6 @@ impl NyxClient {
             .context("Connection error")?;
         Ok(resp.text().await?)
     }
-
-    /// The underlying reqwest client (used by the download flow, which needs
-    /// the shared cookie jar for the CAPTCHA session).
-    pub fn raw(&self) -> &Client {
-        &self.client
-    }
 }
 
 fn resolve_url(path: &str) -> String {

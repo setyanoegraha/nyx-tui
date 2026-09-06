@@ -3,12 +3,10 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Borders, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap,
-};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
 use ratatui::Frame;
 
-use super::{ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, ViewMode, WriteupsPopup, downloads::Phase};
+use super::{ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WriteupsPopup};
 
 const ACCENT: Color = Color::Rgb(136, 192, 208); // Nord8 frost blue
 const WARN: Color = Color::Rgb(235, 203, 139); // Nord13 yellow
@@ -39,9 +37,6 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 
     draw_footer(frame, footer, app);
 
-    if app.view == ViewMode::Downloads && app.popup.is_none() && app.report.is_none() {
-        draw_downloads(frame, frame.area(), app);
-    }
     if let Some(popup) = &app.popup {
         draw_popup(frame, frame.area(), popup);
     }
@@ -58,13 +53,14 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
     let username = crate::config::ConfigManager::new().username();
     let username = if username.is_empty() { "-" } else { &username };
-    let fb_count = app
+    let fb = app
         .data
-        .first_bloods_of(&crate::config::ConfigManager::new().username())
-        .len();
+        .first_bloods_of(&crate::config::ConfigManager::new().username());
+    let fb_user = fb.iter().filter(|(_, k)| *k == "user").count();
+    let fb_root = fb.iter().filter(|(_, k)| *k == "root").count();
     let position = app.data.leaderboard_position(username);
     let line = Line::from(vec![
-        Span::styled(" VulnyX", Style::new().fg(ACCENT).bold()),
+        Span::styled(" VulNyx", Style::new().fg(ACCENT).bold()),
         Span::styled(" dashboard", Style::new().dim()),
         Span::raw("  ·  "),
         Span::styled(username, Style::new().fg(BRIGHT).bold()),
@@ -75,10 +71,10 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
         ),
         Span::raw("  ·  "),
         Span::styled(
-            format!("first bloods: {fb_count}"),
+            format!("first blood: user {fb_user} · root {fb_root}"),
             Style::new().fg(OK),
         ),
-
+        Span::raw("  ·  "),
         match position {
             Some((rank, _)) => Span::styled(format!("leaderboard #{rank}"), Style::new().fg(WARN)),
             None => Span::styled("leaderboard -", Style::new().dim()),
@@ -100,8 +96,15 @@ fn draw_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
 
 fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let visible = app.visible_machines();
-    let header = Row::new(["Machine", "Difficulty", "OS", "Creator", "Date", "First Blood"])
-        .style(Style::new().fg(ACCENT).bold());
+    let header = Row::new([
+        "Machine",
+        "Difficulty",
+        "OS",
+        "Creator",
+        "Date",
+        "First Blood",
+    ])
+    .style(Style::new().fg(ACCENT).bold());
 
     let rows: Vec<Row> = visible
         .iter()
@@ -184,7 +187,9 @@ fn filter_block(app: &AppState) -> Block<'_> {
         }
         Tab::Progress => format!(
             " First bloods {} · writeups {} ",
-            app.data.first_bloods_of(&crate::config::ConfigManager::new().username()).len(),
+            app.data
+                .first_bloods_of(&crate::config::ConfigManager::new().username())
+                .len(),
             app.own_writeups_rows().len()
         ),
     };
@@ -215,8 +220,8 @@ fn filter_block(app: &AppState) -> Block<'_> {
 fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let username = crate::config::ConfigManager::new().username();
     let username = if username.is_empty() { "-" } else { &username };
-    let [left, right] = Layout::horizontal([Constraint::Percentage(45), Constraint::Fill(1)])
-        .areas(area);
+    let [left, right] =
+        Layout::horizontal([Constraint::Percentage(45), Constraint::Fill(1)]).areas(area);
 
     // ---- left: identity + first bloods + statistics ---------------------
     let first_bloods = app.data.first_bloods_of(username);
@@ -239,13 +244,12 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
         )),
     ];
     if first_bloods.is_empty() {
-        lines.push(Line::from("  None yet — first to submit a flag gets the blood."));
+        lines.push(Line::from(
+            "  None yet — first to submit a flag gets the blood.",
+        ));
     } else {
         for (machine, kind) in &first_bloods {
-            lines.push(Line::from(format!(
-                "  ● {} — {kind}",
-                machine.name
-            )));
+            lines.push(Line::from(format!("  ● {} — {kind}", machine.name)));
         }
     }
     lines.push(Line::from(""));
@@ -342,60 +346,27 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
             ))
             .border_style(Style::new().fg(ACCENT));
         frame.render_widget(
-            Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(Wrap { trim: false }),
             box_area,
         );
         return;
     }
 
     let height = match popup.kind {
-        PopupKind::Descarga | PopupKind::Captcha | PopupKind::Username => 8,
+        PopupKind::Username => 8,
         PopupKind::WriteupSubmit => 11,
         PopupKind::Flag => 11,
         _ => 8,
     };
     let height = height + u16::from(popup.notice.is_some());
-    let completion_lines = if popup.kind == PopupKind::Descarga && !popup.completions.is_empty() {
-        1 + popup.completions.len().min(6) + usize::from(popup.completions.len() > 6)
-    } else {
-        0
-    };
-    let height = height + completion_lines as u16;
-    // Captcha ASCII art lines add height
-    let captcha_extra = if popup.kind == PopupKind::Captcha {
-        popup.captcha_lines.len() as u16 + 1
-    } else {
-        0
-    };
-    let height = height + captcha_extra;
     // Clamp popup height to the available body area
     let height = height.min(area.height.saturating_sub(4));
-    let width = if popup.kind == PopupKind::Captcha && !popup.captcha_lines.is_empty() {
-        popup
-            .captcha_lines
-            .iter()
-            .map(|l| l.len() as u16 + 8)
-            .max()
-            .unwrap_or(76)
-            .max(60)
-            .min(area.width.saturating_sub(4))
-    } else {
-        76
-    };
-    let box_area = popup_area(area, width, height);
+    let box_area = popup_area(area, 76, height);
     frame.render_widget(Clear, box_area);
 
     let (title, prompts, hint): (String, Vec<&str>, &str) = match popup.kind {
-        PopupKind::Descarga => (
-            format!(" Download — {} ", popup.machine),
-            vec!["Save to:"],
-            "Tab complete path · Enter download · Esc cancel",
-        ),
-        PopupKind::Captcha => (
-            format!(" CAPTCHA — {} ", popup.machine),
-            vec!["Code (5 chars):"],
-            "Enter submit · Esc dismiss (download pauses)",
-        ),
         PopupKind::Flag => (
             format!(" First blood — {} ", popup.machine),
             vec!["User flag (MD5):", "Root flag (MD5):"],
@@ -440,34 +411,6 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         }
     }
     lines.push(Line::from(""));
-    // Path-completion listing (Tab in the Download popup), zsh style.
-    if popup.kind == PopupKind::Descarga && !popup.completions.is_empty() {
-        lines.push(Line::from(Span::styled("  directories:", Style::new().dim())));
-        for name in popup.completions.iter().take(6) {
-            lines.push(Line::from(Span::styled(
-                format!("  {name}"),
-                Style::new().fg(FROST),
-            )));
-        }
-        let rest = popup.completions.len().saturating_sub(6);
-        if rest > 0 {
-            lines.push(Line::from(Span::styled(
-                format!("  … and {rest} more"),
-                Style::new().dim(),
-            )));
-        }
-    }
-    lines.push(Line::from(""));
-    // Render captcha ASCII art so the user can read it in-terminal.
-    if popup.kind == PopupKind::Captcha && !popup.captcha_lines.is_empty() {
-        for captcha_line in &popup.captcha_lines {
-            lines.push(Line::from(Span::styled(
-                format!("  {captcha_line}"),
-                Style::new().fg(BRIGHT),
-            )));
-        }
-        lines.push(Line::from(""));
-    }
     lines.push(Line::from(Span::styled(hint, Style::new().dim())));
 
     let block = Block::bordered()
@@ -535,7 +478,8 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup) {
     frame.render_widget(Clear, box_area);
 
     let header = Row::new(["Author", "Type", "Date", "URL"]).style(Style::new().fg(ACCENT).bold());
-    let hint = Row::new([" ", " ", " ", "Enter open · jk select · Esc close"]).style(Style::new().dim());
+    let hint =
+        Row::new([" ", " ", " ", "Enter open · jk select · Esc close"]).style(Style::new().dim());
 
     let table = Table::new(
         rows,
@@ -562,100 +506,6 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup) {
     frame.render_stateful_widget(table, box_area, &mut state);
 }
 
-fn draw_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
-    let jobs = app.download_jobs.len();
-    let height = (jobs as u16 + 5).clamp(6, 16);
-    let box_area = popup_area(area, 100, height);
-    frame.render_widget(Clear, box_area);
-
-    let mut lines: Vec<Line> = Vec::new();
-    if jobs == 0 {
-        lines.push(Line::from(Span::styled(
-            "No downloads yet — press d on a machine.",
-            Style::new().dim(),
-        )));
-    }
-
-    let selected_index = if app.view == ViewMode::Downloads {
-        app.download_selected()
-    } else {
-        usize::MAX
-    };
-
-    for (index, job) in app.download_jobs.iter().enumerate() {
-        // Lock once and read everything through the guard: `is_active()`
-        // and `download_selected()` would re-lock the same non-reentrant
-        // std::Mutex while the guard is alive — self-deadlock.
-        let state = job.state.lock().unwrap();
-        let active = matches!(
-            state.phase,
-            Phase::Resolving | Phase::AwaitingCaptcha | Phase::Downloading
-        );
-        let selected = index == selected_index;
-        let marker = if selected && active {
-            Span::styled("c ", Style::new().fg(WARN).bold())
-        } else {
-            Span::raw("  ")
-        };
-
-        let line = match state.phase {
-            Phase::Resolving => Line::from(vec![
-                marker,
-                Span::styled(
-                    format!("… {}  resolving captcha…", job.machine),
-                    Style::new().dim(),
-                ),
-            ]),
-            Phase::AwaitingCaptcha => Line::from(vec![
-                marker,
-                Span::styled(
-                    format!("⌨ {}  captcha opened — type the code in the popup", job.machine),
-                    Style::new().fg(WARN).bold(),
-                ),
-            ]),
-            Phase::Downloading => Line::from(vec![
-                marker,
-                Span::styled(
-                    format!("↻ {}  getting download link…", job.machine),
-                    Style::new().fg(ACCENT),
-                ),
-            ]),
-            Phase::Done => Line::from(vec![
-                Span::raw("  "),
-                Span::styled("✓ ", Style::new().fg(OK).bold()),
-                Span::styled(
-                    format!("{} → {}", job.machine, state.message),
-                    Style::new().fg(OK),
-                ),
-            ]),
-            Phase::Failed => Line::from(vec![
-                Span::raw("  "),
-                Span::styled("✗ ", Style::new().fg(BAD).bold()),
-                Span::styled(
-                    format!("{}: {}", job.machine, state.message),
-                    Style::new().fg(BAD),
-                ),
-            ]),
-            Phase::Cancelled => Line::from(vec![
-                Span::raw("  "),
-                Span::styled(format!("• {} cancelled", job.machine), Style::new().dim()),
-            ]),
-        };
-        lines.push(line);
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "o close (downloads keep running) · c cancel latest · q quit warns while active",
-        Style::new().dim(),
-    )));
-
-    let block = Block::bordered()
-        .title(Span::styled(" Downloads ", Style::new().fg(WARN).bold()))
-        .border_style(Style::new().fg(WARN));
-    frame.render_widget(Paragraph::new(lines).block(block), box_area);
-}
-
 fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
     // Two rows so the key hints never get truncated: row 1 = context
     // actions, row 2 = global keys + status.
@@ -666,13 +516,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
 
     let actions_line: String = if app.popup.is_some() {
         match app.popup.as_ref().map(|p| p.kind) {
-            Some(PopupKind::Descarga) => {
-                "Tab complete path · Enter download · Esc cancel".to_string()
-            }
-            Some(PopupKind::Captcha) => "Enter submit code · Esc dismiss".to_string(),
-            Some(PopupKind::Flag) => {
-                "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string()
-            }
+            Some(PopupKind::Flag) => "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string(),
             Some(PopupKind::WriteupSubmit) => {
                 "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string()
             }
@@ -694,8 +538,11 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         actions,
     );
 
-    let global = "Tab tabs · a username · o downloads · r refresh · q quit";
-    frame.render_widget(Paragraph::new(Span::styled(global, Style::new().dim())), global_area);
+    let global = "Tab tabs · a username · r refresh · q quit";
+    frame.render_widget(
+        Paragraph::new(Span::styled(global, Style::new().dim())),
+        global_area,
+    );
 
     let status = if let Some(label) = &app.fetching {
         Span::styled(format!("⟳ {label}"), Style::new().fg(WARN).bold())
