@@ -1,6 +1,6 @@
 [package]
 name = "nyx"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 description = "nyx-tui: unofficial VulnyX terminal dashboard — machine catalog, downloads, flags, writeups and leaderboard"
 license = "MIT"
