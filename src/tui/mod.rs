@@ -40,7 +40,6 @@ pub struct Popup {
     pub machine: String,
     /// Machine slug for API submissions ("" when not applicable).
     pub machine_slug: String,
-    pub machine_md5: String,
     pub buffers: Vec<String>,
     pub field: usize,
     pub notice: Option<String>,
@@ -355,8 +354,8 @@ pub struct AppState {
     pub status_expiry: Option<std::time::Instant>,
     pub popup: Option<Popup>,
     pub pending_action: Option<TuiAction>,
-    pub pending_download: Option<(String, String, String, PathBuf)>,
-    pub download_queue: std::collections::VecDeque<(String, String, String, PathBuf)>,
+    pub pending_download: Option<(String, String, PathBuf)>,
+    pub download_queue: std::collections::VecDeque<(String, String, PathBuf)>,
     pub download_jobs: Vec<std::sync::Arc<downloads::DownloadJob>>,
     pub report: Option<ActionReport>,
     pub writeups_popup: Option<WriteupsPopup>,
@@ -437,16 +436,7 @@ impl AppState {
                 .download_jobs
                 .iter()
                 .filter(|job| job.is_active())
-                .map(|job| {
-                    let state = job.state.lock().unwrap();
-                    let pct = state
-                        .downloaded
-                        .checked_mul(100)
-                        .and_then(|pct| pct.checked_div(state.total))
-                        .map(|pct| format!(" {}%", pct))
-                        .unwrap_or_default();
-                    format!("↓ {}{pct}", job.machine)
-                })
+                .map(|job| format!("↓ {}", job.machine))
                 .collect();
             self.set_status(format!(
                 "{active} download(s) active — press q again to abort: {}",
@@ -585,7 +575,6 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
-            machine_md5: String::new(),
             flag_types: Vec::new(),
         });
     }
@@ -638,7 +627,6 @@ impl AppState {
             readonly: true,
             text: Some(text),
             completions: Vec::new(),
-            machine_md5: String::new(),
             flag_types: Vec::new(),
         });
     }
@@ -701,7 +689,6 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
-            machine_md5: String::new(),
             flag_types: Vec::new(),
         });
     }
@@ -779,7 +766,6 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
-            machine_md5: String::new(),
             flag_types,
         });
     }
@@ -811,7 +797,6 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
-            machine_md5: String::new(),
             flag_types: Vec::new(),
         });
     }
@@ -849,17 +834,12 @@ impl AppState {
                     self.set_status("Indicate the destination directory.");
                     return;
                 }
-                let entry = (
-                    popup.machine.clone(),
-                    popup.machine_slug.clone(),
-                    popup.machine_md5.clone(),
-                    PathBuf::from(dir),
-                );
+                let entry = (popup.machine.clone(), popup.machine_slug.clone(), PathBuf::from(dir));
                 let machine = entry.0.clone();
                 // Two concurrent downloads of the same machine into the same
                 // folder would corrupt the shared staging file — refuse.
                 let duplicate = self.download_jobs.iter().any(|job| {
-                    job.is_active() && job.machine == machine && job.dest_dir == entry.3
+                    job.is_active() && job.machine == machine && job.dest_dir == entry.2
                 });
                 if duplicate {
                     self.set_status(format!(
@@ -1060,12 +1040,11 @@ fn event_loop(
         app.tick();
 
         // Start queued/pending downloads as slots free up.
-        if let Some((machine, slug, md5, dir)) = app.pending_download.take() {
+        if let Some((machine, slug, dir)) = app.pending_download.take() {
             match downloads::start_download(
                 host.client.clone(),
                 machine.clone(),
                 slug,
-                md5,
                 dir.clone(),
             ) {
                 Ok(job) => {
@@ -1078,12 +1057,11 @@ fn event_loop(
             }
         }
         if app.active_downloads() < downloads::PARALLEL_DOWNLOADS {
-            while let Some((machine, slug, md5, dir)) = app.download_queue.pop_front() {
+            while let Some((machine, slug, dir)) = app.download_queue.pop_front() {
                 match downloads::start_download(
                     host.client.clone(),
                     machine.clone(),
                     slug,
-                    md5,
                     dir.clone(),
                 ) {
                     Ok(job) => {
@@ -1144,7 +1122,6 @@ fn event_loop(
                                 kind: PopupKind::Captcha,
                                 machine,
                                 machine_slug: String::new(),
-                                machine_md5: String::new(),
                                 buffers: vec![String::new()],
                                 field: 0,
                                 notice: Some(

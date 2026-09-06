@@ -78,12 +78,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
             format!("first bloods: {fb_count}"),
             Style::new().fg(OK),
         ),
-        Span::raw("  ·  "),
-        Span::styled(
-            format!("{} writeups", app.data.writeups.len()),
-            Style::new().fg(PURPLE),
-        ),
-        Span::raw("  ·  "),
+
         match position {
             Some((rank, _)) => Span::styled(format!("leaderboard #{rank}"), Style::new().fg(WARN)),
             None => Span::styled("leaderboard -", Style::new().dim()),
@@ -259,8 +254,7 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
         Style::new().fg(ACCENT).bold(),
     )));
     lines.push(Line::from(format!(
-        "  First bloods : {} (user {} / root {})",
-        first_bloods.len(),
+        "  First blood  : user {} · root {}",
         first_bloods.iter().filter(|(_, k)| *k == "user").count(),
         first_bloods.iter().filter(|(_, k)| *k == "root").count(),
     )));
@@ -587,36 +581,13 @@ fn draw_downloads(frame: &mut Frame, area: Rect, app: &AppState) {
                     Style::new().fg(WARN).bold(),
                 ),
             ]),
-            Phase::Downloading => {
-                let ratio = if state.total > 0 {
-                    state.downloaded as f64 / state.total as f64
-                } else {
-                    0.0
-                };
-                let filled = (ratio * 24.0).round() as usize;
-                let bar = format!(
-                    "[{}{}]",
-                    "█".repeat(filled),
-                    "░".repeat(24usize.saturating_sub(filled))
-                );
-                Line::from(vec![
-                    marker,
-                    Span::styled(
-                        format!("↓ {:<14}", job.machine),
-                        Style::new().fg(ACCENT).bold(),
-                    ),
-                    Span::styled(format!("{bar} "), Style::new().fg(ACCENT)),
-                    Span::styled(
-                        format!(
-                            "{}/{} · {}/s",
-                            super::downloads::fmt_bytes(state.downloaded),
-                            super::downloads::fmt_bytes(state.total),
-                            super::downloads::fmt_bytes(state.speed_bps),
-                        ),
-                        Style::new().fg(BRIGHT),
-                    ),
-                ])
-            }
+            Phase::Downloading => Line::from(vec![
+                marker,
+                Span::styled(
+                    format!("↻ {}  getting download link…", job.machine),
+                    Style::new().fg(ACCENT),
+                ),
+            ]),
             Phase::Done => Line::from(vec![
                 Span::raw("  "),
                 Span::styled("✓ ", Style::new().fg(OK).bold()),
