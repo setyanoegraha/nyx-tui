@@ -270,17 +270,15 @@ impl WriteupsPopup {
 pub enum Tab {
     Machines,
     Progress,
-    Writeups,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Machines, Tab::Progress, Tab::Writeups];
+    pub const ALL: [Tab; 2] = [Tab::Machines, Tab::Progress];
 
     pub fn title(self) -> &'static str {
         match self {
             Tab::Machines => "Machines",
             Tab::Progress => "Progress",
-            Tab::Writeups => "Writeups",
         }
     }
 
@@ -529,17 +527,10 @@ impl AppState {
 
     /// Opens the writeup URL of the selected row (Progress / Writeups).
     pub fn open_selected_writeup_link(&mut self) {
-        let url = match self.tab {
-            Tab::Writeups => self
-                .visible_writeups()
-                .get(self.selected)
-                .map(|(_, w)| w.url.clone()),
-            Tab::Progress => self
-                .own_writeups_rows()
-                .get(self.selected)
-                .map(|(_, w)| w.url.clone()),
-            _ => None,
-        };
+        let url = self
+            .own_writeups_rows()
+            .get(self.selected)
+            .map(|(_, w)| w.url.clone());
         match url {
             Some(url) => {
                 let opened = std::process::Command::new("xdg-open")
@@ -958,7 +949,6 @@ impl AppState {
         match self.tab {
             Tab::Machines => self.visible_machines().len(),
             Tab::Progress => self.data.own_writeups(&crate::config::ConfigManager::new().username()).len(),
-            Tab::Writeups => self.visible_writeups().len(),
         }
     }
 
@@ -1029,21 +1019,6 @@ impl AppState {
 
 
 impl AppState {
-    /// All writeups flattened for the Writeups tab.
-    pub fn visible_writeups(&self) -> Vec<&(String, WriteupEntry)> {
-        let needle = self.filter.to_lowercase();
-        self.data
-            .writeups
-            .iter()
-            .filter(|(slug, w)| {
-                needle.is_empty()
-                    || slug.to_lowercase().contains(&needle)
-                    || w.author.to_lowercase().contains(&needle)
-                    || w.tipo.to_lowercase().contains(&needle)
-                    || w.language.to_lowercase().contains(&needle)
-            })
-            .collect()
-    }
 }
 
 /// Host-provided callbacks the event loop calls synchronously (blocking the
@@ -1367,15 +1342,12 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             KeyCode::Char('/') => app.enter_filter_mode(),
             KeyCode::Char('a') => app.open_username_popup(),
             KeyCode::Char('o') => app.toggle_downloads_view(),
-            KeyCode::Char('s') => match app.tab {
-                Tab::Machines => {
+            KeyCode::Char('s') => {
+                if app.tab == Tab::Machines {
                     app.machine_sort = app.machine_sort.next();
                     app.reset_list_position();
                 }
-                _ => {
-                    app.set_status("Sorting is only available on the Machines tab.");
-                }
-            },
+            }
             KeyCode::Char('d') => app.open_download_popup(),
             KeyCode::Char('f') => app.open_flag_popup(),
             KeyCode::Char('w') => app.open_writeups_popup(),
@@ -1393,7 +1365,7 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             }
             KeyCode::Enter => match app.tab {
                 Tab::Machines => app.open_descripcion_popup(),
-                _ => app.open_selected_writeup_link(),
+                Tab::Progress => app.open_selected_writeup_link(),
             },
             _ => {}
         },

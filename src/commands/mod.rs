@@ -100,11 +100,9 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
             let url = action.values[0].1.clone();
             let tipo = action.values[1].1.clone();
             let language = action.values[2].1.clone();
-            let creator = action.values[3].1.clone();
             let message = WriteupManager::new(client.clone())
                 .submit(
                     &action.machine,
-                    &creator,
                     &username,
                     &url,
                     &tipo,

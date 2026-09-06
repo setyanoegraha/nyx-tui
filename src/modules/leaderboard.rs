@@ -9,6 +9,7 @@ pub struct LeaderboardEntry {
     pub user: String,
     pub first_user: u64,
     pub first_root: u64,
+    pub vms: u64,
     pub writeups: u64,
     pub points: u64,
 }
@@ -28,6 +29,11 @@ pub fn compute(
 
 
     for machine in machines {
+        if !machine.creator.trim().is_empty() {
+            let e = entry(&mut scores, &machine.creator);
+            e.vms += 1;
+            e.points += 25;
+        }
         if !machine.first_user.trim().is_empty() {
             let e = entry(&mut scores, &machine.first_user);
             e.first_user += 1;

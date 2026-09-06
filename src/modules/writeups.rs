@@ -58,8 +58,7 @@ impl WriteupManager {
     pub async fn submit(
         &self,
         machine_slug: &str,
-        creator: &str,
-        _username: &str,
+        username: &str,
         url: &str,
         tipo: &str,
         language: &str,
@@ -76,7 +75,7 @@ impl WriteupManager {
                 "/includes/writeup.php",
                 &serde_json::json!({
                     "machine": machine_slug,
-                    "creator": creator,
+                    "creator": username,
                     "url": url.trim(),
                     "type": tipo,
                     "language": language,

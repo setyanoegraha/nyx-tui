@@ -35,7 +35,6 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     match app.tab {
         Tab::Machines => draw_machines(frame, body, app),
         Tab::Progress => draw_progress(frame, body, app),
-        Tab::Writeups => draw_writeups_tab(frame, body, app),
     }
 
     draw_footer(frame, footer, app);
@@ -193,11 +192,6 @@ fn filter_block(app: &AppState) -> Block<'_> {
             app.data.first_bloods_of(&crate::config::ConfigManager::new().username()).len(),
             app.own_writeups_rows().len()
         ),
-        Tab::Writeups => format!(
-            " Writeups {}/{} ",
-            app.visible_writeups().len(),
-            app.data.writeups.len()
-        ),
     };
 
     let mut block = Block::default()
@@ -331,51 +325,6 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
     frame.render_stateful_widget(table, right, &mut state);
 
     app.set_visible_rows(visible_rows_in(right.height));
-}
-
-fn draw_writeups_tab(frame: &mut Frame, area: Rect, app: &mut AppState) {
-    let visible = app.visible_writeups();
-    let header = Row::new(["Machine", "Author", "Type", "Lang", "Date", "URL"])
-        .style(Style::new().fg(ACCENT).bold());
-    let rows: Vec<Row> = visible
-        .iter()
-        .map(|(slug, w)| {
-            let (tipo, tipo_style) = if w.tipo.contains("Video") {
-                ("🎥", Style::new().fg(FROST))
-            } else {
-                ("📝", Style::new().fg(PURPLE))
-            };
-            let date = w.submitted_at.split(' ').next().unwrap_or("-").to_string();
-            Row::new([
-                Span::styled(slug.clone(), Style::new().fg(BRIGHT).bold()),
-                Span::styled(w.author.clone(), Style::new().fg(PURPLE)),
-                Span::styled(tipo, tipo_style),
-                Span::styled(w.language.clone(), Style::new().dim()),
-                Span::styled(date, Style::new().dim()),
-                Span::styled(w.url.clone(), Style::new().fg(LINK)),
-            ])
-        })
-        .collect();
-
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(20),
-            Constraint::Length(16),
-            Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Length(11),
-            Constraint::Fill(1),
-        ],
-    )
-    .header(header)
-    .row_highlight_style(Style::new().bg(HL_BG).add_modifier(Modifier::BOLD))
-    .block(filter_block(app));
-
-    let mut state = TableState::default().with_selected(Some(app.selected));
-    frame.render_stateful_widget(table, area, &mut state);
-
-    app.set_visible_rows(visible_rows_in(area.height));
 }
 
 fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
@@ -734,7 +683,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
             InputMode::Normal => match app.tab {
                 Tab::Machines => "jk move · / filter · s sort · d download · f flag · w writeups · u submit · b first blood · i info".to_string(),
                 Tab::Progress => "jk move · Enter open writeup".to_string(),
-                Tab::Writeups => "jk move · / filter · Enter open".to_string(),
             },
         }
     };
