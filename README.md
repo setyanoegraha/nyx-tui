@@ -1,10 +1,14 @@
 # nyx-tui
 
-### Unofficial VulnyX terminal dashboard — TUI tidak resmi untuk VulnyX
+### Unofficial VulNyx terminal dashboard — TUI no oficial para VulNyx
 
 <p align="center">
   <img src="assets/dashboard-machines.png" alt="nyx-tui — Machines tab with Nord theme" width="100%">
 </p>
+
+**[English](README.md) | [Español](README.es.md)**
+
+---
 
 **nyx-tui** is an interactive terminal dashboard for [VulNyx](https://vulnyx.com): browse the machine catalog, submit first-blood flags, read and submit community writeups, and track your leaderboard position — all without leaving the terminal. Machine downloads open the VulnyX download page in your browser, where you complete the CAPTCHA and download the machine yourself.
 
@@ -16,7 +20,7 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 
 | Machines | Progress |
 | :---: | :---: |
-| ![Machines tab](assets/dashboard-machines.png) | ![Progress tab](assets/dashboard-progreso.png) |
+| ![Machines tab](assets/dashboard-machines.png) | ![Progress tab](assets/dashboard-progress.png) |
 
 ## Features
 
@@ -24,8 +28,8 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 * **Machines** — the full catalog with the site's official difficulty colors (Low/Easy/Medium/Hard), OS (Linux/Windows), tech tags, and first-blood status per machine. Instant `/` filtering and `s` sorting (site order → name → date → difficulty).
 * **First-blood flag submission** — `f` opens a popup to submit User and Root flags (MD5). Slots already taken are shown as read-only notices; open slots are ready for your MD5 hash. Your username is attached automatically.
 * **First-blood filter** — `b` shows only machines with an open first-blood slot, so you can be the first to pwn a fresh release.
-* **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`). A dedicated **Writeups** tab lists every writeup on the platform (1,200+).
-* **Progress** — your first bloods, writeups, leaderboard position (computed from public data with the site's own scoring rules) and per-machine certificate/cert-id details.
+* **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`).
+* **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules).
 * **Username management** — `a` opens the username popup; whatever you set is attached to all submissions and used for your leaderboard position.
 
 ---
@@ -45,13 +49,13 @@ Grab the archive for your platform from the [Releases](https://github.com/setyan
 
 | Platform | Archive |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.1.0-x86_64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.1.0-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.1.0-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.1.0-x86_64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.1.3-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.1.3-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.1.3-x86_64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
