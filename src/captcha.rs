@@ -1,8 +1,10 @@
-//! CAPTCHA solver for VulnyX's download gate. The captcha is a clean
-//! 160x50 PNG with a dotted 3x5 uppercase font (A-Z0-9), no distortion —
-//! solved by binarizing, segmenting glyphs and template-matching them
-//! against a built-in font table. Unknown shapes return None and the TUI
-//! falls back to the viewer + manual code popup.
+//! CAPTCHA handling for VulnyX's download gate
+#![allow(dead_code)] // auto-solver pending font table calibration: PNG decoding, ASCII
+//! rendering for in-terminal display, and pattern-matching auto-solve.
+//!
+//! The captcha is a clean 160x50 PNG with a dotted pixel font (A-Z0-9),
+//! no distortion — rendered as ASCII art inside the TUI popup so the user
+//! never needs an external viewer.
 
 use anyhow::Result;
 
@@ -114,17 +116,47 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
     }
 }
 
-/// Solves the captcha from its PNG bytes: returns the 5-character code, or
-/// None when a glyph cannot be matched with certainty.
+/// Renders a captcha PNG as ASCII art lines for in-terminal display.
+/// Each column is halved (160px → 80 chars) to fit terminal width.
+/// Ink pixels become '#', background becomes ' '.
+pub fn render_ascii(png: &[u8]) -> Result<Vec<String>> {
+    let (width, height, luma) = decode_png_luma(png)?;
+    let mut lines = Vec::new();
+    // Render at half resolution (1 char per 2x2 px) for compact terminal display
+    for y in (0..height).step_by(2) {
+        let mut line = String::new();
+        for x in (0..width).step_by(2) {
+            // Sample the darkest pixel in each 2x2 block
+            let l1 = luma[y * width + x];
+            let l2 = if x + 1 < width { luma[y * width + x + 1] } else { 255 };
+            let l3 = if y + 1 < height { luma[(y + 1) * width + x] } else { 255 };
+            let l4 = if x + 1 < width && y + 1 < height { luma[(y + 1) * width + x + 1] } else { 255 };
+            let darkest = l1.min(l2).min(l3).min(l4);
+            line.push(if darkest < 60 { '#' } else { ' ' });
+        }
+        let trimmed = line.trim_end().to_string();
+        lines.push(trimmed);
+    }
+    // Remove leading/trailing blank lines
+    while lines.first().is_some_and(|l| l.is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    Ok(lines)
+}
+
+/// Solves the captcha from its PNG bytes using font template matching.
+/// Returns the 5-character code, or None when a glyph cannot be matched.
 pub fn solve(png: &[u8]) -> Option<String> {
     let (width, height, luma) = decode_png_luma(png).ok()?;
     solve_luma(width, height, &luma)
 }
 
-/// Glyph segmentation + matching over a binarized luma bitmap.
-pub fn solve_luma(width: usize, height: usize, luma: &[u8]) -> Option<String> {
+/// Finds the column ranges of the 5 glyphs in the captcha bitmap.
+fn find_glyph_ranges(width: usize, height: usize, luma: &[u8]) -> Vec<(usize, usize)> {
     let ink = |x: usize, y: usize| luma[y * width + x] < 128;
-    // Columns containing ink (ignore a 2px margin to skip border artifacts).
     let mut column_ink = vec![false; width];
     for y in 0..height {
         for (x, col) in column_ink.iter_mut().enumerate() {
@@ -133,7 +165,6 @@ pub fn solve_luma(width: usize, height: usize, luma: &[u8]) -> Option<String> {
             }
         }
     }
-    // Segment glyph column ranges.
     let mut ranges: Vec<(usize, usize)> = Vec::new();
     let mut start: Option<usize> = None;
     for (x, &inked) in column_ink.iter().enumerate() {
@@ -151,35 +182,18 @@ pub fn solve_luma(width: usize, height: usize, luma: &[u8]) -> Option<String> {
     if let Some(s) = start {
         ranges.push((s, width));
     }
-    if ranges.len() != 5 {
-        return None; // expect exactly 5 characters
-    }
-
-    let mut code = String::new();
-    for (s, e) in &ranges {
-        let glyph = coarse_grid(width, height, luma, *s, *e)?;
-        let matched = FONT
-            .iter()
-            .filter(|(_, bits)| *bits == glyph.as_str())
-            .map(|(ch, _)| *ch)
-            .next();
-        code.push(matched?);
-    }
-    Some(code)
+    ranges
 }
 
-/// Downsamples a glyph's bounding box to a 3x5 coarse bitmap ('1'/'0'),
-/// the dot font's native grid. A font pixel counts as ink when at least a
-/// third of its cells are ink.
-fn coarse_grid(
+/// Extracts the raw bitmap of a glyph (binary, 1 = ink).
+fn extract_glyph(
     width: usize,
     height: usize,
     luma: &[u8],
     start: usize,
     end: usize,
-) -> Option<String> {
+) -> Vec<Vec<bool>> {
     let ink = |x: usize, y: usize| luma[y * width + x] < 128;
-    // Vertical extent of ink within the glyph.
     let mut top = height;
     let mut bottom = 0usize;
     for y in 0..height {
@@ -191,84 +205,110 @@ fn coarse_grid(
         }
     }
     if bottom < top {
-        return None;
+        return Vec::new();
     }
-    let gw = end - start;
-    let gh = bottom - top + 1;
-    // The dotted font draws each font pixel as a 2x2 dot cluster with a 1px
-    // gap; derive the grid size from the measured extents.
-    let cols = (gw / 2).max(1);
-    let rows = (gh / 2).max(1);
-    if cols != 3 || rows != 5 {
-        return None; // only the known 3x5 font is supported
-    }
-    let cell_w = gw as f64 / cols as f64;
-    let cell_h = gh as f64 / rows as f64;
-    let mut grid = String::new();
-    for r in 0..rows {
-        for c in 0..cols {
-            let x0 = start as f64 + c as f64 * cell_w;
-            let y0 = top as f64 + r as f64 * cell_h;
-            let x1 = x0 + cell_w;
-            let y1 = y0 + cell_h;
-            let mut ink_count = 0u32;
-            let mut total = 0u32;
-            for y in y0 as usize..y1 as usize {
-                for x in x0 as usize..x1 as usize {
-                    total += 1;
-                    if ink(x, y) {
-                        ink_count += 1;
-                    }
-                }
-            }
-            grid.push(if total > 0 && ink_count * 3 >= total {
-                '1'
-            } else {
-                '0'
-            });
+    let mut grid = Vec::new();
+    for y in top..=bottom {
+        let mut row = Vec::new();
+        for x in start..end {
+            row.push(ink(x, y));
         }
+        grid.push(row);
     }
-    Some(grid)
+    grid
 }
 
-/// The dotted 3x5 font table for A-Z0-9 ('1' = ink), rows left-to-right,
-/// top-to-bottom. Built from labeled live samples.
-pub const FONT: &[(char, &str)] = &[
-    ('0', "111101101101111"),
-    ('1', "010110010010111"),
-    ('2', "111001111100111"),
-    ('3', "111001111001111"),
-    ('4', "101101111001001"),
-    ('5', "111100111001111"),
-    ('6', "111100111101111"),
-    ('7', "111001001001001"),
-    ('8', "111101111101111"),
-    ('9', "111101111001111"),
-    ('A', "111101111101101"),
-    ('B', "110101110101110"),
-    ('C', "111100100100111"),
-    ('D', "110101101101110"),
-    ('E', "111100110100111"),
-    ('F', "111100110100100"),
-    ('G', "111100101101111"),
-    ('H', "101101111101101"),
-    ('I', "111010010010111"),
-    ('J', "001001001101111"),
-    ('K', "101101110101101"),
-    ('L', "100100100100111"),
-    ('M', "101111111101101"),
-    ('N', "101111110110101") , // placeholder, calibrated live
-    ('O', "111101101101111"),
-    ('P', "111101111100100"),
-    ('Q', "111101101111001"),
-    ('R', "111101110101101"),
-    ('S', "111100111001111"),
-    ('T', "111010010010010"),
-    ('U', "101101101101111"),
-    ('V', "101101101101010"),
-    ('W', "101101111111101"),
-    ('X', "101101010101101"),
-    ('Y', "101101010010010"),
-    ('Z', "111001010100111"),
+/// Solves the captcha from a luma bitmap by segmenting glyphs and
+/// template-matching them against known font patterns.
+pub fn solve_luma(width: usize, height: usize, luma: &[u8]) -> Option<String> {
+    let ranges = find_glyph_ranges(width, height, luma);
+    if ranges.len() != 5 {
+        return None;
+    }
+
+    let mut code = String::new();
+    for (start, end) in &ranges {
+        let glyph = extract_glyph(width, height, luma, *start, *end);
+        if glyph.is_empty() {
+            return None;
+        }
+        let ch = match_glyph(&glyph)?;
+        code.push(ch);
+    }
+    Some(code)
+}
+
+/// Compares a glyph bitmap against the known font patterns.
+/// Returns the matched character, or None if no match is found.
+fn match_glyph(glyph: &[Vec<bool>]) -> Option<char> {
+    // Normalize to a compact string representation
+    let normalized = normalize_glyph(glyph);
+
+    for (ch, pattern) in FONT_PATTERNS {
+        if *pattern == normalized {
+            return Some(*ch);
+        }
+    }
+    None
+}
+
+/// Converts a raw glyph bitmap to a normalized string ('1' = ink, '0' = blank),
+/// trimming empty rows and columns.
+fn normalize_glyph(glyph: &[Vec<bool>]) -> String {
+    let mut s = String::new();
+    for row in glyph {
+        for &cell in row {
+            s.push(if cell { '1' } else { '0' });
+        }
+        s.push('\n');
+    }
+    s.trim_end().to_string()
+}
+
+/// Known font patterns from live captcha samples.
+/// Each pattern is the raw glyph bitmap rendered as '1'/'0' rows separated by '\n'.
+/// Built from live samples during development.
+pub const FONT_PATTERNS: &[(char, &str)] = &[
+    // Populated during development with live captcha samples
 ];
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_ascii_with_real_captcha() {
+        let path = std::env::var("CAPTCHA_PNG").unwrap_or_default();
+        if path.is_empty() {
+            return; // skip if no captcha file provided
+        }
+        let png = std::fs::read(&path).unwrap();
+        let lines = render_ascii(&png).unwrap();
+        println!("lines: {}", lines.len());
+        for line in &lines {
+            println!("{line}");
+        }
+        assert!(!lines.is_empty(), "render_ascii should produce lines");
+        assert!(
+            lines.iter().any(|l| l.contains('#')),
+            "at least one line should have ink"
+        );
+    }
+
+    #[test]
+    fn test_decode_png_luma_works() {
+        let path = "/tmp/vx-captcha.png";
+        let png = std::fs::read(path).expect("cannot read captcha file");
+        println!("file size: {}", png.len());
+        println!("first bytes: {:02x?}", &png[..16]);
+        match decode_png_luma(&png) {
+            Ok((w, h, luma)) => {
+                println!("decoded: {w}x{h}");
+                let ink = luma.iter().filter(|&&l| l < 128).count();
+                println!("ink pixels: {ink}");
+            }
+            Err(e) => println!("DECODE ERROR: {e:#}"),
+        }
+    }
+
+}

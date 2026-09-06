@@ -50,6 +50,8 @@ pub struct Popup {
     pub completions: Vec<String>,
     /// Flag slot types parallel to `buffers` ("user" / "root").
     pub flag_types: Vec<&'static str>,
+    /// ASCII art lines for the Captcha popup.
+    pub captcha_lines: Vec<String>,
 }
 
 impl Popup {
@@ -575,6 +577,7 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
+            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -627,6 +630,7 @@ impl AppState {
             readonly: true,
             text: Some(text),
             completions: Vec::new(),
+            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -689,6 +693,7 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
+            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -766,6 +771,7 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
+            captcha_lines: Vec::new(),
             flag_types,
         });
     }
@@ -797,6 +803,7 @@ impl AppState {
             readonly: false,
             text: None,
             completions: Vec::new(),
+            captcha_lines: Vec::new(),
             flag_types: Vec::new(),
         });
     }
@@ -1098,9 +1105,9 @@ fn event_loop(
             app.fetching = None;
         }
 
-        // Captcha handling for downloads waiting for a code: try the
-        // built-in solver first (the font is a clean dotted 3x5); fall back
-        // to a popup where the user types the code from the opened image.
+        // Captcha popups for downloads waiting for a code: render the
+        // captcha as ASCII art inside the popup so the user can read it
+        // without leaving the terminal.
         if app.popup.is_none() && app.report.is_none() && app.writeups_popup.is_none() {
             if let Some(job) = app
                 .download_jobs
@@ -1110,30 +1117,22 @@ fn event_loop(
                 let captcha_path = job.state.lock().unwrap().captcha_path.clone();
                 if let Some(path) = captcha_path {
                     if let Ok(png) = std::fs::read(&path) {
-                        if let Some(code) = crate::captcha::solve(&png) {
-                            job.submit_code(code);
-                            app.set_status(format!(
-                                "[⌨] Captcha auto-solved for {} — downloading.",
-                                job.machine
-                            ));
-                        } else {
-                            let machine = job.machine.clone();
-                            app.popup = Some(Popup {
-                                kind: PopupKind::Captcha,
-                                machine,
-                                machine_slug: String::new(),
-                                buffers: vec![String::new()],
-                                field: 0,
-                                notice: Some(
-                                    "The captcha image was opened in your viewer — type the 5 characters."
-                                        .to_string(),
-                                ),
-                                readonly: false,
-                                text: None,
-                                completions: Vec::new(),
-                                flag_types: Vec::new(),
-                            });
-                        }
+                        let ascii_lines =
+                            crate::captcha::render_ascii(&png).unwrap_or_default();
+                        let machine = job.machine.clone();
+                        app.popup = Some(Popup {
+                            kind: PopupKind::Captcha,
+                            machine,
+                            machine_slug: String::new(),
+                            buffers: vec![String::new()],
+                            field: 0,
+                            notice: None,
+                            readonly: false,
+                            text: None,
+                            completions: Vec::new(),
+                                        flag_types: Vec::new(),
+                            captcha_lines: ascii_lines,
+                        });
                     }
                 }
             }

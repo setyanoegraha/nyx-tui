@@ -34,6 +34,8 @@ pub struct DownloadState {
     pub phase: Phase,
     pub message: String,
     pub captcha_path: Option<PathBuf>,
+    /// ASCII art rendering of the captcha image for in-terminal display.
+    pub ascii_lines: Vec<String>,
 }
 
 impl Default for DownloadState {
@@ -42,6 +44,7 @@ impl Default for DownloadState {
             phase: Phase::Resolving,
             message: String::new(),
             captcha_path: None,
+            ascii_lines: Vec::new(),
         }
     }
 }
@@ -126,10 +129,16 @@ pub fn start_download(
             // Phase 1: interstitial + captcha image (opened in viewer).
             let _html = fetch_captcha(&client, &task_machine, &captcha_path).await?;
 
+            let ascii_lines = {
+                let png = std::fs::read(&captcha_path)
+                    .with_context(|| format!("Failed to read {}", captcha_path.display()))?;
+                crate::captcha::render_ascii(&png).unwrap_or_default()
+            };
             {
                 let mut s = task_state.lock().unwrap();
                 s.phase = Phase::AwaitingCaptcha;
                 s.captcha_path = Some(captcha_path.clone());
+                s.ascii_lines = ascii_lines;
             }
             let _ = std::process::Command::new("xdg-open")
                 .arg(&captcha_path)

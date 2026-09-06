@@ -361,7 +361,28 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         0
     };
     let height = height + completion_lines as u16;
-    let box_area = popup_area(area, 76, height);
+    // Captcha ASCII art lines add height
+    let captcha_extra = if popup.kind == PopupKind::Captcha {
+        popup.captcha_lines.len() as u16 + 1
+    } else {
+        0
+    };
+    let height = height + captcha_extra;
+    // Clamp popup height to the available body area
+    let height = height.min(area.height.saturating_sub(4));
+    let width = if popup.kind == PopupKind::Captcha && !popup.captcha_lines.is_empty() {
+        popup
+            .captcha_lines
+            .iter()
+            .map(|l| l.len() as u16 + 8)
+            .max()
+            .unwrap_or(76)
+            .max(60)
+            .min(area.width.saturating_sub(4))
+    } else {
+        76
+    };
+    let box_area = popup_area(area, width, height);
     frame.render_widget(Clear, box_area);
 
     let (title, prompts, hint): (String, Vec<&str>, &str) = match popup.kind {
@@ -435,6 +456,17 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
                 Style::new().dim(),
             )));
         }
+    }
+    lines.push(Line::from(""));
+    // Render captcha ASCII art so the user can read it in-terminal.
+    if popup.kind == PopupKind::Captcha && !popup.captcha_lines.is_empty() {
+        for captcha_line in &popup.captcha_lines {
+            lines.push(Line::from(Span::styled(
+                format!("  {captcha_line}"),
+                Style::new().fg(BRIGHT),
+            )));
+        }
+        lines.push(Line::from(""));
     }
     lines.push(Line::from(Span::styled(hint, Style::new().dim())));
 
@@ -687,6 +719,8 @@ fn visible_rows_in(height: u16) -> usize {
 }
 
 fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
     Rect {
         x: area.x + (area.width.saturating_sub(width)) / 2,
         y: area.y + (area.height.saturating_sub(height)) / 2,
