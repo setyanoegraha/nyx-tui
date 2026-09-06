@@ -1,0 +1,8 @@
+/target
+
+# machine download artifacts
+*.zip
+*.ova
+*.tar
+*.part
+.zcode/
