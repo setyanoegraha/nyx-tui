@@ -10,6 +10,7 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 
+use crate::i18n::{Lang, Msg};
 use crate::modules::leaderboard::{compute, position_of};
 use crate::modules::machines::Machine;
 use crate::modules::writeups::WriteupEntry;
@@ -241,6 +242,8 @@ pub struct TuiAction {
     pub kind: ActionKind,
     pub machine: String,
     pub values: Vec<(usize, String)>,
+    /// Interface language at queue time, for host-built reports.
+    pub lang: Lang,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -369,12 +372,12 @@ impl MachineSort {
         }
     }
 
-    pub fn indicator(self) -> &'static str {
+    pub fn indicator(self, lang: Lang) -> String {
         match self {
-            MachineSort::Sitio => "",
-            MachineSort::Nombre => " · sort: name",
-            MachineSort::Fecha => " · sort: date",
-            MachineSort::Dificultad => " · sort: difficulty",
+            MachineSort::Sitio => Msg::SortSite.render(lang),
+            MachineSort::Nombre => Msg::SortName.render(lang),
+            MachineSort::Fecha => Msg::SortDate.render(lang),
+            MachineSort::Dificultad => Msg::SortDifficulty.render(lang),
         }
     }
 }
@@ -393,6 +396,7 @@ pub struct AppState {
     pub scroll: usize,
     pub machine_sort: MachineSort,
     pub only_first_blood: bool,
+    pub lang: Lang,
     /// Manual completed marks (slugs), persisted in config.json.
     pub completed: Vec<String>,
     /// Hide completed machines from the Machines list (`x` toggle).
@@ -424,6 +428,7 @@ impl AppState {
             scroll: 0,
             machine_sort: MachineSort::default(),
             only_first_blood: false,
+            lang: crate::config::ConfigManager::new().language(),
             completed: crate::config::ConfigManager::new().completed_machines(),
             hide_completed: false,
             quit: false,
@@ -444,7 +449,7 @@ impl AppState {
     /// Entry state for `nyx`: draws immediately, then loads all data.
     pub fn loading() -> Self {
         let mut state = Self::new(TuiData::default());
-        state.fetching = Some("Loading data...".to_string());
+        state.fetching = Some(Msg::FetchingLoad.render(state.lang));
         state
     }
 
@@ -456,6 +461,11 @@ impl AppState {
     pub fn set_status(&mut self, message: impl Into<String>) {
         self.status = Some(message.into());
         self.status_expiry = Some(std::time::Instant::now() + STATUS_LIFETIME);
+    }
+
+    /// Renders a message in the interface language.
+    pub fn tr(&self, msg: Msg) -> String {
+        msg.render(self.lang)
     }
 
     /// Clears expired status messages; called once per event-loop iteration.
@@ -509,7 +519,7 @@ impl AppState {
     /// Toggles the manual completed mark of the selected machine.
     pub fn toggle_completed(&mut self) {
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         let slug = machine.slug.clone();
@@ -532,9 +542,9 @@ impl AppState {
             return;
         }
         self.set_status(if removing {
-            format!("{name} marked as not completed.")
+            self.tr(Msg::MarkedNotCompleted(name))
         } else {
-            format!("{name} marked as completed.")
+            self.tr(Msg::MarkedCompleted(name))
         });
     }
     /// Filtered catalog for the Machines tab; filter matches name,
@@ -587,11 +597,11 @@ impl AppState {
                     .stderr(std::process::Stdio::null())
                     .spawn();
                 self.set_status(match opened {
-                    Ok(_) => format!("Opened in browser: {url}"),
-                    Err(error) => format!("xdg-open failed: {error}"),
+                    Ok(_) => self.tr(Msg::OpenedInBrowser(url)),
+                    Err(error) => self.tr(Msg::XdgOpenFailed(error.to_string())),
                 });
             }
-            None => self.set_status("No writeup link on this row."),
+            None => self.set_status(self.tr(Msg::NoWriteupLink)),
         }
     }
 
@@ -644,38 +654,46 @@ impl AppState {
             return;
         }
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         let user_line = if machine.user_slot_open() {
-            "OPEN — claim it!".to_string()
+            self.tr(Msg::SlotOpen)
         } else {
-            format!("taken by {}", machine.first_user)
+            self.tr(Msg::TakenBy(machine.first_user.clone()))
         };
         let root_line = if machine.root_slot_open() {
-            "OPEN — claim it!".to_string()
+            self.tr(Msg::SlotOpen)
         } else {
-            format!("taken by {}", machine.first_root)
+            self.tr(Msg::TakenBy(machine.first_root.clone()))
         };
-        let text = format!(
-            "Difficulty: {} · OS: {} · Points: {}/{}\nPlatform: {} · Size: {}\nCreator: {} · Date: {}\nMD5: {}\nTech tags: {}\n\nFirst blood user: {}\nFirst blood root: {}",
-            machine.difficulty,
-            machine.os,
-            machine.pts_user,
-            machine.pts_root,
-            machine.platforms.join(", "),
-            machine.size,
-            machine.creator,
-            machine.release_date,
-            if machine.md5.is_empty() { "-" } else { &machine.md5 },
-            if machine.tech_tags.is_empty() {
-                "-".to_string()
-            } else {
-                machine.tech_tags.join(", ")
-            },
-            user_line,
-            root_line,
-        );
+        let text = [
+            self.tr(Msg::DescDifficulty(
+                machine.difficulty.clone(),
+                machine.os.clone(),
+                machine.pts_user,
+                machine.pts_root,
+            )),
+            self.tr(Msg::DescPlatform(
+                machine.platforms.join(", "),
+                machine.size.clone(),
+            )),
+            self.tr(Msg::DescCreator(machine.creator.clone(), machine.release_date.clone())),
+            self.tr(Msg::DescMd5)
+                + " "
+                + if machine.md5.is_empty() { "-" } else { &machine.md5 },
+            self.tr(Msg::DescTags(
+                if machine.tech_tags.is_empty() {
+                    "-".to_string()
+                } else {
+                    machine.tech_tags.join(", ")
+                },
+            )),
+            String::new(),
+            self.tr(Msg::DescBloodUser(user_line)),
+            self.tr(Msg::DescBloodRoot(root_line)),
+        ]
+        .join("\n");
         self.popup = Some(Popup {
             kind: PopupKind::Descripcion,
             machine: machine.name.clone(),
@@ -697,11 +715,11 @@ impl AppState {
             return;
         }
         if self.tab != Tab::Machines {
-            self.set_status("Writeups are available on the Machines tab.");
+            self.set_status(self.tr(Msg::WriteupsWrongTab));
             return;
         }
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         let entries: Vec<WriteupEntry> = self
@@ -712,7 +730,7 @@ impl AppState {
             .map(|(_, w)| w.clone())
             .collect();
         if entries.is_empty() {
-            self.set_status(format!("No community writeups for {} yet.", machine.name));
+            self.set_status(self.tr(Msg::NoCommunityWriteups(machine.name.clone())));
             return;
         }
         self.writeups_popup = Some(WriteupsPopup {
@@ -728,11 +746,11 @@ impl AppState {
             return;
         }
         if self.tab != Tab::Machines {
-            self.set_status("Writeup submission is available on the Machines tab.");
+            self.set_status(self.tr(Msg::SubmitWrongTab));
             return;
         }
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         if crate::config::ConfigManager::new()
@@ -740,7 +758,7 @@ impl AppState {
             .trim()
             .is_empty()
         {
-            self.set_status("Set your username first (a).");
+            self.set_status(self.tr(Msg::SetUsernameFirst));
             return;
         }
         self.popup = Some(Popup {
@@ -766,11 +784,11 @@ impl AppState {
             return;
         }
         if self.tab != Tab::Machines {
-            self.set_status("Flags are only available on the Machines tab.");
+            self.set_status(self.tr(Msg::FlagsWrongTab));
             return;
         }
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         if crate::config::ConfigManager::new()
@@ -778,7 +796,7 @@ impl AppState {
             .trim()
             .is_empty()
         {
-            self.set_status("Set your username first (a).");
+            self.set_status(self.tr(Msg::SetUsernameFirst));
             return;
         }
         let user_open = machine.user_slot_open();
@@ -789,14 +807,14 @@ impl AppState {
                 entries: vec![
                     (
                         ReportKind::Failure,
-                        "First blood: ✗ BOTH SLOTS ALREADY TAKEN".to_string(),
+                        self.tr(Msg::SlotsTaken),
                     ),
                     (
                         ReportKind::Info,
-                        format!(
-                            "user → {} · root → {}",
-                            machine.first_user, machine.first_root
-                        ),
+                        self.tr(Msg::BloodHolders(
+                            machine.first_user.clone(),
+                            machine.first_root.clone(),
+                        )),
                     ),
                 ],
                 changed: false,
@@ -812,13 +830,13 @@ impl AppState {
             buffers.push(String::new());
             flag_types.push("user");
         } else {
-            notices.push(format!("User flag: taken by {}", machine.first_user));
+            notices.push(self.tr(Msg::FlagTakenNotice("user", machine.first_user.clone())));
         }
         if root_open {
             buffers.push(String::new());
             flag_types.push("root");
         } else {
-            notices.push(format!("Root flag: taken by {}", machine.first_root));
+            notices.push(self.tr(Msg::FlagTakenNotice("root", machine.first_root.clone())));
         }
         let notice = if notices.is_empty() {
             None
@@ -843,11 +861,11 @@ impl AppState {
     /// Opens the VulnyX download page in the browser (`d`, Machines).
     pub fn open_download_page(&mut self) {
         if self.tab != Tab::Machines {
-            self.set_status("Downloads are only available on the Machines tab.");
+            self.set_status(self.tr(Msg::DownloadsWrongTab));
             return;
         }
         let Some(machine) = self.selected_machine() else {
-            self.set_status("Nothing selected.");
+            self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
         let url = format!("https://vulnyx.com/download.php?vm={}", machine.name);
@@ -857,8 +875,8 @@ impl AppState {
             .stderr(std::process::Stdio::null())
             .spawn();
         self.set_status(match opened {
-            Ok(_) => format!("[↓] Download page opened: {url}"),
-            Err(error) => format!("xdg-open failed: {error}"),
+            Ok(_) => self.tr(Msg::DownloadOpened(url)),
+            Err(error) => self.tr(Msg::XdgOpenFailed(error.to_string())),
         });
     }
 
@@ -879,14 +897,14 @@ impl AppState {
                 let username = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
                 if username.len() < 2 {
                     self.popup = Some(popup);
-                    self.set_status("The username needs at least 2 characters.");
+                    self.set_status(self.tr(Msg::UsernameTooShort));
                     return;
                 }
                 if let Err(error) = crate::config::ConfigManager::new().save_username(&username) {
-                    self.set_status(format!("Failed to save: {error:#}"));
+                    self.set_status(self.tr(Msg::SaveFailed(format!("{error:#}"))));
                     return;
                 }
-                self.set_status(format!("[✓] Username set to {username}."));
+                self.set_status(self.tr(Msg::UsernameSet(username)));
             }
             PopupKind::Flag => {
                 // values carry "type:md5" — validate each and queue.
@@ -899,29 +917,28 @@ impl AppState {
                     }
                     if flag.len() != 32 || !flag.chars().all(|c| c.is_ascii_hexdigit()) {
                         self.popup = Some(popup);
-                        self.set_status(format!(
-                            "The {flag_type} flag must be an MD5 hash: 32 hex characters."
-                        ));
+                        self.set_status(self.tr(Msg::FlagNotMd5((*flag_type).to_string())));
                         return;
                     }
                     typed.push((0usize, format!("{flag_type}:{flag}")));
                 }
                 if typed.is_empty() {
                     self.popup = Some(popup);
-                    self.set_status("Fill at least one flag.");
+                    self.set_status(self.tr(Msg::FillOneFlag));
                     return;
                 }
                 self.pending_action = Some(TuiAction {
                     kind: ActionKind::SubmitFlag,
                     machine: popup.machine_slug.clone(),
                     values: typed,
+                    lang: self.lang,
                 });
             }
             PopupKind::WriteupSubmit => {
                 let url = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
                 if url.is_empty() {
                     self.popup = Some(popup);
-                    self.set_status("Indicate the writeup URL.");
+                    self.set_status(self.tr(Msg::IndicateUrl));
                     return;
                 }
                 let tipo = values
@@ -938,6 +955,7 @@ impl AppState {
                     kind: ActionKind::SubmitWriteup,
                     machine: popup.machine_slug.clone(),
                     values: vec![(0, url), (1, tipo), (2, language)],
+                    lang: self.lang,
                 });
             }
             PopupKind::Descripcion => {}
@@ -1059,21 +1077,21 @@ fn event_loop(
         // User actions from popups (submit flag, submit writeup).
         if let Some(action) = app.pending_action.take() {
             let label = match action.kind {
-                ActionKind::SubmitFlag => format!("Submitting flag for {}...", action.machine),
+                ActionKind::SubmitFlag => {
+                    format!("Submitting flag for {}...", action.machine)
+                }
                 ActionKind::SubmitWriteup => {
                     format!("Submitting writeup for {}...", action.machine)
                 }
             };
             app.fetching = Some(label);
-            terminal.draw(|frame| crate::tui::render::draw(frame, app))?;
-
             match (host.run_action)(action) {
                 Ok(report) => {
                     app.set_status(report.status.clone());
                     app.pending_refresh_after_close = report.changed;
                     app.report = Some(report);
                 }
-                Err(error) => app.set_status(format!("Action failed: {error:#}")),
+                Err(error) => app.set_status(app.tr(Msg::ActionFailed(format!("{error:#}")))),
             }
             app.fetching = None;
         }
@@ -1083,7 +1101,7 @@ fn event_loop(
             app.refresh_requested = false;
             // Draw immediately so the `⟳ <label>` shows while the blocking
             // fetch runs, instead of freezing silently.
-            app.fetching = Some("Refreshing data...".to_string());
+            app.fetching = Some(Msg::FetchingRefresh.render(app.lang));
             terminal.draw(|frame| crate::tui::render::draw(frame, app))?;
 
             let result = (host.refetch)();
@@ -1091,9 +1109,9 @@ fn event_loop(
             match result {
                 Ok(data) => {
                     app.set_data(data);
-                    app.set_status("Data refreshed.");
+                    app.set_status(app.tr(Msg::DataRefreshed));
                 }
-                Err(error) => app.set_status(format!("Fetch failed: {error:#}")),
+                Err(error) => app.set_status(app.tr(Msg::FetchFailed(format!("{error:#}")))),
             }
         }
 
@@ -1123,8 +1141,8 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                         .stderr(std::process::Stdio::null())
                         .spawn();
                     app.set_status(match opened {
-                        Ok(_) => format!("Opened in browser: {url}"),
-                        Err(error) => format!("xdg-open failed: {error}"),
+                        Ok(_) => app.tr(Msg::OpenedInBrowser(url.to_string())),
+                        Err(error) => app.tr(Msg::XdgOpenFailed(error.to_string())),
                     });
                 }
             }
@@ -1237,7 +1255,7 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 app.popup = None;
-                app.set_status("Cancelled.");
+                app.set_status(app.tr(Msg::Cancelled));
             }
             KeyCode::Enter => app.confirm_popup(),
             KeyCode::Backspace => {
@@ -1290,6 +1308,11 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             KeyCode::Home | KeyCode::Char('g') => app.move_start(),
             KeyCode::Char('/') => app.enter_filter_mode(),
             KeyCode::Char('a') => app.open_username_popup(),
+            KeyCode::Char('l') => {
+                app.lang = app.lang.toggle();
+                let _ = crate::config::ConfigManager::new().save_language(app.lang);
+                app.set_status(app.tr(Msg::LanguageSet(app.lang)));
+            }
             KeyCode::Char('s') => {
                 if app.tab == Tab::Machines {
                     app.machine_sort = app.machine_sort.next();
@@ -1315,9 +1338,9 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                     app.hide_completed = !app.hide_completed;
                     app.reset_list_position();
                     let note = if app.hide_completed {
-                        "completed machines hidden"
+                        app.tr(Msg::CompletedHidden)
                     } else {
-                        "completed machines shown"
+                        app.tr(Msg::CompletedShown)
                     };
                     app.set_status(note);
                 }

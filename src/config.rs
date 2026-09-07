@@ -1,15 +1,22 @@
-//! Local preference: the self-declared username (used for flag & writeup
-//! submissions and for computing your leaderboard position), stored in
+//! Local preferences: the self-declared username (used for flag & writeup
+//! submissions and for computing your leaderboard position), the machines
+//! manually marked as completed, and the interface language — stored in
 //! ~/.nyx-tui/config.json. VulnyX has no accounts and no passwords — nothing
 //! sensitive is stored here.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
 const CONFIG_DIR_NAME: &str = ".nyx-tui";
 const CONFIG_FILE_NAME: &str = "config.json";
+
+fn default_language() -> String {
+    "en".to_string()
+}
 
 #[derive(Serialize, Deserialize, Default)]
 struct ConfigFile {
@@ -18,6 +25,9 @@ struct ConfigFile {
     /// Machine slugs manually marked as completed in the TUI (`m`).
     #[serde(default)]
     completed: Vec<String>,
+    /// Interface language ("en" | "es"), toggled with `l`.
+    #[serde(default = "default_language")]
+    language: String,
     /// Unknown keys from other versions are preserved on save.
     #[serde(flatten, skip_serializing_if = "BTreeMap::is_empty")]
     extra: BTreeMap<String, serde_json::Value>,
@@ -56,6 +66,25 @@ impl ConfigManager {
             .unwrap_or_default()
     }
 
+    /// The interface language; invalid values fall back to English.
+    pub fn language(&self) -> crate::i18n::Lang {
+        crate::i18n::Lang::from_code(
+            &self
+                .read_config()
+                .map(|cfg| cfg.language)
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Persists the interface language.
+    pub fn save_language(&self, lang: crate::i18n::Lang) -> Result<()> {
+        let mut cfg = self.read_config().unwrap_or_default();
+        cfg.language = lang.as_str().to_string();
+        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
+            .with_context(|| "Failed to write the configuration file")?;
+        Ok(())
+    }
+
     pub fn completed_machines(&self) -> Vec<String> {
         self.read_config()
             .map(|cfg| cfg.completed)
@@ -73,17 +102,20 @@ impl ConfigManager {
 
     /// Persists the username.
     pub fn save_username(&self, username: &str) -> Result<()> {
-        let cfg = ConfigFile {
-            username: username.trim().to_string(),
-            completed: self.completed_machines(),
-            extra: BTreeMap::new(),
-        };
+        let mut cfg = self.read_config().unwrap_or_default();
+        cfg.username = username.trim().to_string();
         fs::write(&self.config_file, serde_json::to_string(&cfg)?)
             .with_context(|| "Failed to write the configuration file")?;
         Ok(())
     }
-
 }
+
+impl Default for ConfigManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,10 +178,22 @@ mod tests {
         assert_eq!(value["completed"][0], "zeta");
         fs::remove_dir_all(dir).ok();
     }
-}
 
-impl Default for ConfigManager {
-    fn default() -> Self {
-        Self::new()
+    #[test]
+    fn language_roundtrip_and_survives_other_saves() {
+        let dir = temp_dir("language");
+        let manager = ConfigManager::in_dir(dir.clone());
+        assert_eq!(manager.language(), crate::i18n::Lang::En);
+        manager.save_username("tester").unwrap();
+        manager.save_language(crate::i18n::Lang::Es).unwrap();
+        manager
+            .save_completed_machines(vec!["alpha".into()])
+            .unwrap();
+        manager.save_username("renamed").unwrap();
+        let manager = ConfigManager::in_dir(dir.clone());
+        assert_eq!(manager.language(), crate::i18n::Lang::Es);
+        assert_eq!(manager.username(), "renamed");
+        assert_eq!(manager.completed_machines(), vec!["alpha"]);
+        fs::remove_dir_all(dir).ok();
     }
 }

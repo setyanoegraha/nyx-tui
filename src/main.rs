@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod i18n;
 mod modules;
 mod tui;
 

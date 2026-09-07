@@ -31,6 +31,8 @@ Un comando, una pantalla: al ejecutar `nyx` se abre el dashboard. Escrito en **R
 * **Writeups** — ventana de writeups de la comunidad por máquina (`w`): artículos 📝 y vídeos 🎥 con autor, idioma y fecha. Publica el tuyo (`u`) — la ventana de envío usa selectores para el **tipo** (Text/Video, selección única) y el **idioma** (los 62 códigos de vulnyx.com, multi-selección), así no se escribe nada a mano.
 * **Seguimiento de completadas** — las máquinas que terminas se marcan `✓` en verde: automático cuando uno de tus writeups se publica en el sitio, o manual por máquina con `m` (guardado localmente en `~/.nyx-tui/config.json`). `x` oculta las completadas para quedarte solo con las pendientes.
 * **Progress** — tus first bloods, writeups y posición en el leaderboard (calculada a partir de los datos públicos con las reglas de puntuación del propio sitio, incluidas las exclusiones de staff del sitio, para que el puesto coincida con vulnyx.com).
+* **Gestión del nombre de usuario** — `a` abre la ventana de usuario; el nombre que pongas se adjunta a todos los envíos y se usa para calcular tu posición en el leaderboard.
+* **Idioma de la interfaz** — `l` alterna toda la interfaz entre **English** y **Español** al instante (mensajes de estado, ventanas, ayudas, todo). Tu elección se guarda y se restaura en cada arranque.
 
 ---
 
@@ -109,6 +111,7 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 | `u` | **Machines** — enviar una URL de writeup para la máquina seleccionada (pendiente de revisión de un admin) |
 | `i` / `Enter` | **Machines** — ventana de descripción con etiquetas, plataformas, MD5 y poseedores del first-blood |
 | `a` | **En cualquier pestaña** — ventana de nombre de usuario |
+| `l` | **En cualquier pestaña** — alternar idioma EN/ES (se guarda) |
 | `Enter` | **Progress** — abrir el writeup seleccionado en tu navegador |
 | `r` | Volver a obtener todos los datos |
 | `q` / `Esc` / `Ctrl-C` | Salir |

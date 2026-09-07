@@ -10,6 +10,7 @@ use super::{
     ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WRITEUP_LANGS,
     WRITEUP_TYPES, WriteupsPopup,
 };
+use crate::i18n::{Lang, Msg};
 
 const ACCENT: Color = Color::Rgb(136, 192, 208); // Nord8 frost blue
 const WARN: Color = Color::Rgb(235, 203, 139); // Nord13 yellow
@@ -20,6 +21,11 @@ const PURPLE: Color = Color::Rgb(180, 142, 173); // Nord15
 const BRIGHT: Color = Color::Rgb(236, 239, 244); // Nord6
 const LINK: Color = Color::Rgb(94, 129, 172); // Nord10
 const HL_BG: Color = Color::Rgb(59, 66, 82); // Nord1
+
+/// Renders a message in `lang` (owned `String`, no lifetime tricks).
+fn render_msg(lang: Lang, msg: Msg) -> String {
+    msg.render(lang)
+}
 
 pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let [header, tabs, body, footer] = Layout::vertical([
@@ -41,14 +47,14 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
     draw_footer(frame, footer, app);
 
     if let Some(popup) = &app.popup {
-        draw_popup(frame, frame.area(), popup);
+        draw_popup(frame, frame.area(), popup, app.lang);
     }
     if let Some(report) = &app.report {
-        draw_report(frame, frame.area(), report);
+        draw_report(frame, frame.area(), report, app.lang);
     }
     if app.writeups_popup.is_some() {
         if let Some(popup) = app.writeups_popup.clone() {
-            draw_writeups_popup(frame, frame.area(), &popup);
+            draw_writeups_popup(frame, frame.area(), &popup, app.lang);
         }
     }
 }
@@ -69,18 +75,18 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &AppState) {
         Span::styled(username, Style::new().fg(BRIGHT).bold()),
         Span::raw("  ·  "),
         Span::styled(
-            format!("{} machines", app.data.machines.len()),
+            app.tr(Msg::MachinesCount(app.data.machines.len())),
             Style::new().fg(FROST),
         ),
         Span::raw("  ·  "),
         Span::styled(
-            format!("first blood: user {fb_user} · root {fb_root}"),
+            app.tr(Msg::HeaderFirstBlood(fb_user, fb_root)),
             Style::new().fg(OK),
         ),
         Span::raw("  ·  "),
         match position {
-            Some((rank, _)) => Span::styled(format!("leaderboard #{rank}"), Style::new().fg(WARN)),
-            None => Span::styled("leaderboard -", Style::new().dim()),
+            Some((rank, _)) => Span::styled(app.tr(Msg::Leaderboard(rank)), Style::new().fg(WARN)),
+            None => Span::styled(app.tr(Msg::LeaderboardNone), Style::new().dim()),
         },
     ]);
     frame.render_widget(Paragraph::new(line), area);
@@ -101,12 +107,12 @@ fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let visible = app.visible_machines();
     let auto_done = app.completed_auto();
     let header = Row::new([
-        "Machine",
-        "Difficulty",
-        "OS",
-        "Creator",
-        "Date",
-        "First Blood",
+        app.tr(Msg::ColMachine),
+        app.tr(Msg::ColDifficulty),
+        app.tr(Msg::ColOs),
+        app.tr(Msg::ColCreator),
+        app.tr(Msg::ColDate),
+        app.tr(Msg::ColFirstBlood),
     ])
     .style(Style::new().fg(ACCENT).bold());
 
@@ -190,33 +196,32 @@ fn filter_block(app: &AppState) -> Block<'_> {
                 .filter(|m| app.is_completed_with(&m.slug, &auto_done))
                 .count();
             let done_note = if app.hide_completed {
-                format!(" · done: {done_count} (hidden)")
+                app.tr(Msg::DoneNote(done_count, true))
             } else {
-                format!(" · done: {done_count}")
+                app.tr(Msg::DoneNote(done_count, false))
             };
             let fb_note = if app.only_first_blood {
-                " · first blood only".to_string()
+                app.tr(Msg::FbOnly)
             } else if open > 0 {
-                format!(" · first blood open: {open}")
+                app.tr(Msg::FbOpen(open))
             } else {
                 String::new()
             };
             format!(
-                " Machines {}/{}{}{}{} ",
-                app.visible_machines().len(),
-                app.data.machines.len(),
-                app.machine_sort.indicator(),
+                "{}{}{}{}{}",
+                app.tr(Msg::MachinesTitle(app.visible_machines().len(), app.data.machines.len())),
+                app.machine_sort.indicator(app.lang),
                 done_note,
-                fb_note
+                fb_note,
+                " "
             )
         }
-        Tab::Progress => format!(
-            " First bloods {} · writeups {} ",
+        Tab::Progress => app.tr(Msg::ProgressTitle(
             app.data
                 .first_bloods_of(&crate::config::ConfigManager::new().username())
                 .len(),
-            app.own_writeups_rows().len()
-        ),
+            app.own_writeups_rows().len(),
+        )),
     };
 
     let mut block = Block::default()
@@ -305,7 +310,13 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     // ---- right: your writeups ------------------------------------------
     let own = app.own_writeups_rows();
-    let header = Row::new(["Machine", "Type", "Date", "URL"]).style(Style::new().fg(ACCENT).bold());
+    let header = Row::new([
+        app.tr(Msg::ColMachine),
+        app.tr(Msg::ColType),
+        app.tr(Msg::ColDate),
+        app.tr(Msg::ColUrl),
+    ])
+    .style(Style::new().fg(ACCENT).bold());
     let rows: Vec<Row> = own
         .iter()
         .map(|(slug, w)| {
@@ -350,7 +361,7 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
     app.set_visible_rows(visible_rows_in(right.height));
 }
 
-fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
+fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
     // Description popup: read-only, wrapped details, sized to its content.
     if popup.kind == PopupKind::Descripcion {
         let width = area.width.saturating_sub(8).max(40);
@@ -363,7 +374,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         }
         let height = lines.len() as u16 + 4; // blank + "Esc close" + 2 borders
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Esc close", Style::new().dim())));
+        lines.push(Line::from(Span::styled(render_msg(lang, Msg::HintEscClose), Style::new().dim())));
         let box_area = popup_area(area, width, height);
         frame.render_widget(Clear, box_area);
         let block = Block::bordered()
@@ -380,21 +391,21 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
     // terminals so no line clips inside the border; height follows the
     // wrapped content (picker rows included).
     let inner = usize::from(area.width).saturating_sub(2).min(74).max(1);
-    let (title, prompts, hint): (String, Vec<&str>, &str) = match popup.kind {
+    let (title, prompts, hint): (String, Vec<String>, String) = match popup.kind {
         PopupKind::Flag => (
-            format!(" First blood — {} ", popup.machine),
-            vec!["User flag (MD5):", "Root flag (MD5):"],
-            "Enter submit · ↑↓/Tab switch field · Esc cancel",
+            Msg::SubmitFlagTitle(popup.machine.clone()).render(lang),
+            vec![Msg::PromptUserFlag.render(lang), Msg::PromptRootFlag.render(lang)],
+            Msg::HintSubmit.render(lang),
         ),
         PopupKind::WriteupSubmit => (
-            format!(" Submit writeup — {} ", popup.machine),
-            vec!["URL:", "Type:", "Language:"],
-            "Enter submit · Space pick type/language · ↑↓/Tab switch field · Esc cancel",
+            Msg::SubmitWriteupTitle(popup.machine.clone()).render(lang),
+            vec![Msg::PromptUrl.render(lang), Msg::PromptType.render(lang), Msg::PromptLanguage.render(lang)],
+            Msg::HintSubmitPickers.render(lang),
         ),
         PopupKind::Username => (
-            " Your username ".to_string(),
-            vec!["Username:"],
-            "Enter save · Esc cancel",
+            Msg::UsernameTitle.render(lang),
+            vec![Msg::PromptUsername.render(lang)],
+            Msg::HintSave.render(lang),
         ),
         PopupKind::Descripcion => unreachable!("rendered by the description branch above"),
     };
@@ -429,7 +440,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
     }
     if popup.type_open {
         lines.push(Line::from(""));
-        for chunk in wrap_text("↑↓ move · Space select · Enter/Esc done", inner) {
+        for chunk in wrap_text(&Msg::TypePanelHeader.render(lang), inner) {
             lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
         }
         for (index, label) in WRITEUP_TYPES.iter().enumerate() {
@@ -447,7 +458,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
     }
     if popup.lang_open {
         lines.push(Line::from(""));
-        for chunk in wrap_text("↑↓ move · Space toggle · Enter/Esc done", inner) {
+        for chunk in wrap_text(&Msg::LangPanelHeader.render(lang), inner) {
             lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
         }
         let visible = 10.min(WRITEUP_LANGS.len());
@@ -474,7 +485,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         }
     }
     lines.push(Line::from(""));
-    for chunk in wrap_text(hint, inner) {
+    for chunk in wrap_text(&hint, inner) {
         lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
     }
 
@@ -489,7 +500,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
     frame.render_widget(Paragraph::new(lines).block(block), box_area);
 }
 
-fn draw_report(frame: &mut Frame, area: Rect, report: &ActionReport) {
+fn draw_report(frame: &mut Frame, area: Rect, report: &ActionReport, lang: Lang) {
     let (width, height) = report_box(&report.entries, (area.width, area.height));
     let box_area = popup_area(area, width, height);
     frame.render_widget(Clear, box_area);
@@ -510,7 +521,7 @@ fn draw_report(frame: &mut Frame, area: Rect, report: &ActionReport) {
         lines.push(Line::from(""));
     }
     lines.push(Line::from(Span::styled(
-        "Enter / Esc close",
+        render_msg(lang, Msg::HintEnterEscClose),
         Style::new().dim(),
     )));
 
@@ -524,7 +535,7 @@ fn draw_report(frame: &mut Frame, area: Rect, report: &ActionReport) {
     frame.render_widget(Paragraph::new(lines).block(block), box_area);
 }
 
-fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup) {
+fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup, lang: Lang) {
     let rows: Vec<Row> = popup
         .entries
         .iter()
@@ -550,9 +561,15 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup) {
     let box_area = popup_area(area, width, height);
     frame.render_widget(Clear, box_area);
 
-    let header = Row::new(["Author", "Type", "Date", "URL"]).style(Style::new().fg(ACCENT).bold());
-    let hint =
-        Row::new([" ", " ", " ", "Enter open · jk select · Esc close"]).style(Style::new().dim());
+    let header = Row::new([
+        render_msg(lang, Msg::ColAuthor),
+        render_msg(lang, Msg::ColType),
+        render_msg(lang, Msg::ColDate),
+        render_msg(lang, Msg::ColUrl),
+    ])
+    .style(Style::new().fg(ACCENT).bold());
+    let hint_text = render_msg(lang, Msg::HintWriteupsRow);
+    let hint = Row::new(vec![" ", " ", " ", hint_text.as_str()]).style(Style::new().dim());
 
     let table = Table::new(
         rows,
@@ -589,21 +606,18 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
 
     let actions_line: String = if app.popup.is_some() {
         match app.popup.as_ref().map(|p| p.kind) {
-            Some(PopupKind::Flag) => "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string(),
-            Some(PopupKind::WriteupSubmit) => {
-                "Enter submit · Space pick type/language · ↑↓/Tab switch field · Esc cancel"
-                    .to_string()
-            }
-            Some(PopupKind::Username) => "Enter save · Esc cancel".to_string(),
-            Some(PopupKind::Descripcion) => "Esc close".to_string(),
-            _ => "Enter confirm · Esc cancel".to_string(),
+            Some(PopupKind::Flag) => app.tr(Msg::HintSubmit),
+            Some(PopupKind::WriteupSubmit) => app.tr(Msg::HintSubmitPickers),
+            Some(PopupKind::Username) => app.tr(Msg::HintSave),
+            Some(PopupKind::Descripcion) => app.tr(Msg::HintEscClose),
+            _ => app.tr(Msg::FooterPopupDefault),
         }
     } else {
         match app.input_mode {
-            InputMode::Filter => "Enter confirm · Esc clears & exits".to_string(),
+            InputMode::Filter => app.tr(Msg::FooterFilter),
             InputMode::Normal => match app.tab {
-                Tab::Machines => "jk move · / filter · s sort · d download · f flag · w writeups · u submit · b blood · m done · x hide · i info".to_string(),
-                Tab::Progress => "jk move · Enter open writeup".to_string(),
+                Tab::Machines => app.tr(Msg::FooterMachines),
+                Tab::Progress => app.tr(Msg::FooterProgress),
             },
         }
     };
@@ -612,7 +626,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         actions,
     );
 
-    let global = "Tab tabs · a username · r refresh · q quit";
+    let global = app.tr(Msg::FooterGlobal);
     frame.render_widget(
         Paragraph::new(Span::styled(global, Style::new().dim())),
         global_area,

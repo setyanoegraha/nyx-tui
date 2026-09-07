@@ -32,6 +32,7 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 * **Completed tracking** — machines you finished turn `✓` green in the list: automatic when one of your writeups is approved on the site, or manually per machine with `m` (persisted locally in `~/.nyx-tui/config.json`). `x` hides completed machines so only pending ones remain.
 * **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules, including the site's staff exclusions so ranks match vulnyx.com).
 * **Username management** — `a` opens the username popup; whatever you set is attached to all submissions and used for your leaderboard position.
+* **UI language** — `l` toggles the whole interface between **English** and **Español** instantly (status messages, popups, hints, everything). Your choice is saved and restored on every launch.
 
 ---
 
@@ -110,6 +111,7 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 | `u` | **Machines** — submit a writeup URL for the selected machine (pending admin review) |
 | `i` / `Enter` | **Machines** — description popup with tags, platforms, MD5, first-blood holders |
 | `a` | **Anywhere** — username popup |
+| `l` | **Anywhere** — toggle UI language EN/ES (persisted) |
 | `Enter` | **Progress** — open the selected writeup in your browser |
 | `r` | Re-fetch all data |
 | `q` / `Esc` / `Ctrl-C` | Quit |
