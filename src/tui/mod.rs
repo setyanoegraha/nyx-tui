@@ -4,6 +4,7 @@
 
 pub mod render;
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -26,6 +27,86 @@ pub enum PopupKind {
     Descripcion,
 }
 
+/// Language options of vulnyx.com (`WRITEUP_LANGS` in the site's /js/index.js,
+/// snapshot 2026-09-07). `(code, display label)`, site order.
+pub const WRITEUP_LANGS: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("es", "Español - Spanish"),
+    ("zh", "中文 - Chinese"),
+    ("uz", "Oʻzbekcha - Uzbek"),
+    ("ru", "Русский - Russian"),
+    ("fr", "Français - French"),
+    ("de", "Deutsch - German"),
+    ("it", "Italiano - Italian"),
+    ("pt", "Português - Portuguese"),
+    ("ar", "العربية - Arabic"),
+    ("hi", "हिन्दी - Hindi"),
+    ("ja", "日本語 - Japanese"),
+    ("ko", "한국어 - Korean"),
+    ("tr", "Türkçe - Turkish"),
+    ("fa", "فارسی - Persian"),
+    ("id", "Bahasa Indonesia - Indonesian"),
+    ("vi", "Tiếng Việt - Vietnamese"),
+    ("pl", "Polski - Polish"),
+    ("uk", "Українська - Ukrainian"),
+    ("nl", "Nederlands - Dutch"),
+    ("ro", "Română - Romanian"),
+    ("el", "Ελληνικά - Greek"),
+    ("he", "עברית - Hebrew"),
+    ("th", "ไทย - Thai"),
+    ("cs", "Čeština - Czech"),
+    ("sv", "Svenska - Swedish"),
+    ("hu", "Magyar - Hungarian"),
+    ("bn", "বাংলা - Bengali"),
+    ("so", "Soomaali - Somali"),
+    ("ms", "Bahasa Melayu - Malay"),
+    ("da", "Dansk - Danish"),
+    ("fi", "Suomi - Finnish"),
+    ("no", "Norsk - Norwegian"),
+    ("bg", "Български - Bulgarian"),
+    ("hr", "Hrvatski - Croatian"),
+    ("sr", "Српски - Serbian"),
+    ("sk", "Slovenčina - Slovak"),
+    ("sl", "Slovenščina - Slovenian"),
+    ("lt", "Lietuvių - Lithuanian"),
+    ("lv", "Latviešu - Latvian"),
+    ("et", "Eesti - Estonian"),
+    ("ka", "ქართული - Georgian"),
+    ("hy", "Հայերեն - Armenian"),
+    ("az", "Azərbaycan - Azerbaijani"),
+    ("kk", "Қазақ - Kazakh"),
+    ("ky", "Кыргызча - Kyrgyz"),
+    ("tg", "Тоҷикӣ - Tajik"),
+    ("tk", "Türkmen - Turkmen"),
+    ("mn", "Монгол - Mongolian"),
+    ("ne", "नेपाली - Nepali"),
+    ("si", "සිංහල - Sinhala"),
+    ("ta", "தமிழ் - Tamil"),
+    ("te", "తెలుగు - Telugu"),
+    ("ml", "മലയാളം - Malayalam"),
+    ("kn", "ಕನ್ನಡ - Kannada"),
+    ("mr", "मराठी - Marathi"),
+    ("gu", "ગુજરાતી - Gujarati"),
+    ("pa", "ਪੰਜਾਬੀ - Punjabi"),
+    ("ur", "اردو - Urdu"),
+    ("sw", "Kiswahili - Swahili"),
+    ("other", "Other"),
+    ("none", "None (video only)"),
+];
+
+/// Canonical-order, comma-joined language codes, e.g. ["es","en"] -> "en,es".
+fn join_langs(selected: &[&'static str]) -> String {
+    WRITEUP_LANGS
+        .iter()
+        .filter(|(code, _)| selected.contains(code))
+        .map(|(code, _)| *code)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Writeup submission types (single-select), mirroring the site's form.
+pub const WRITEUP_TYPES: &[&str] = &["Text", "Video"];
+
 /// A popup bound to one machine. Input popups carry `buffers`; the
 /// description popup is read-only and renders `text`.
 #[derive(Debug, Clone)]
@@ -42,16 +123,29 @@ pub struct Popup {
     pub text: Option<String>,
     /// Flag slot types parallel to `buffers` ("user" / "root").
     pub flag_types: Vec<&'static str>,
+    /// WriteupSubmit only: language picker state.
+    pub lang_open: bool,
+    pub lang_cursor: usize,
+    pub lang_selected: Vec<&'static str>,
+    /// WriteupSubmit only: type picker state (single-select).
+    pub type_open: bool,
+    pub type_cursor: usize,
 }
 
 impl Popup {
     pub fn push(&mut self, c: char) {
+        if self.lang_field_active() || self.type_field_active() {
+            return;
+        }
         if let Some(buffer) = self.buffers.get_mut(self.field) {
             buffer.push(c);
         }
     }
 
     pub fn pop(&mut self) {
+        if self.lang_field_active() || self.type_field_active() {
+            return;
+        }
         if let Some(buffer) = self.buffers.get_mut(self.field) {
             buffer.pop();
         }
@@ -66,6 +160,71 @@ impl Popup {
     pub fn previous_field(&mut self) {
         if self.buffers.len() > 1 {
             self.field = (self.field + self.buffers.len() - 1) % self.buffers.len();
+        }
+    }
+
+    /// True when the active field is the writeup language picker (field 2 of
+    /// WriteupSubmit).
+    pub fn lang_field_active(&self) -> bool {
+        self.kind == PopupKind::WriteupSubmit && self.field == 2
+    }
+
+    pub fn open_lang_panel(&mut self) {
+        self.lang_open = true;
+    }
+
+    pub fn close_lang_panel(&mut self) {
+        self.lang_open = false;
+    }
+
+    pub fn move_lang_cursor(&mut self, delta: isize) {
+        let last = WRITEUP_LANGS.len().saturating_sub(1);
+        self.lang_cursor = (self.lang_cursor as isize + delta).clamp(0, last as isize) as usize;
+    }
+
+    /// Toggles the option under `lang_cursor`, then reserializes `buffers[2]`
+    /// in canonical order via `join_langs`.
+    pub fn toggle_lang(&mut self) {
+        let Some((code, _)) = WRITEUP_LANGS.get(self.lang_cursor) else {
+            return;
+        };
+        let code = *code;
+        if let Some(pos) = self.lang_selected.iter().position(|c| *c == code) {
+            self.lang_selected.remove(pos);
+        } else {
+            self.lang_selected.push(code);
+        }
+        if let Some(buffer) = self.buffers.get_mut(2) {
+            *buffer = join_langs(&self.lang_selected);
+        }
+    }
+
+    /// True when the active field is the writeup type picker (field 1 of
+    /// WriteupSubmit).
+    pub fn type_field_active(&self) -> bool {
+        self.kind == PopupKind::WriteupSubmit && self.field == 1
+    }
+
+    pub fn open_type_panel(&mut self) {
+        self.type_open = true;
+    }
+
+    pub fn close_type_panel(&mut self) {
+        self.type_open = false;
+    }
+
+    pub fn move_type_cursor(&mut self, delta: isize) {
+        let last = WRITEUP_TYPES.len().saturating_sub(1);
+        self.type_cursor = (self.type_cursor as isize + delta).clamp(0, last as isize) as usize;
+    }
+
+    /// Selects the highlighted type (single-select) into `buffers[1]`.
+    pub fn select_type(&mut self) {
+        let Some(label) = WRITEUP_TYPES.get(self.type_cursor) else {
+            return;
+        };
+        if let Some(buffer) = self.buffers.get_mut(1) {
+            *buffer = (*label).to_string();
         }
     }
 }
@@ -234,6 +393,10 @@ pub struct AppState {
     pub scroll: usize,
     pub machine_sort: MachineSort,
     pub only_first_blood: bool,
+    /// Manual completed marks (slugs), persisted in config.json.
+    pub completed: Vec<String>,
+    /// Hide completed machines from the Machines list (`x` toggle).
+    pub hide_completed: bool,
     pub quit: bool,
     pub refresh_requested: bool,
     pub fetching: Option<String>,
@@ -261,6 +424,8 @@ impl AppState {
             scroll: 0,
             machine_sort: MachineSort::default(),
             only_first_blood: false,
+            completed: crate::config::ConfigManager::new().completed_machines(),
+            hide_completed: false,
             quit: false,
             refresh_requested: false,
             fetching: None,
@@ -324,11 +489,60 @@ impl AppState {
         self.scroll = 0;
     }
 
+    /// Slugs with an own writeup already published on the site (approved).
+    /// Cheap: derives from data already in memory.
+    pub fn completed_auto(&self) -> HashSet<String> {
+        self.data
+            .own_writeups(&crate::config::ConfigManager::new().username())
+            .into_iter()
+            .map(|(slug, _)| slug.clone())
+            .collect()
+    }
+
+    /// True when the machine is completed: manual mark or own published
+    /// writeup. `auto` precomputes `completed_auto()` once for the whole
+    /// list pass.
+    pub fn is_completed_with(&self, slug: &str, auto: &HashSet<String>) -> bool {
+        self.completed.iter().any(|s| s == slug) || auto.contains(slug)
+    }
+
+    /// Toggles the manual completed mark of the selected machine.
+    pub fn toggle_completed(&mut self) {
+        let Some(machine) = self.selected_machine() else {
+            self.set_status("Nothing selected.");
+            return;
+        };
+        let slug = machine.slug.clone();
+        let name = machine.name.clone();
+        let removing = self.completed.iter().any(|s| *s == slug);
+        if removing {
+            self.completed.retain(|s| *s != slug);
+        } else {
+            self.completed.push(slug.clone());
+        }
+        if let Err(error) =
+            crate::config::ConfigManager::new().save_completed_machines(self.completed.clone())
+        {
+            if removing {
+                self.completed.push(slug);
+            } else {
+                self.completed.pop();
+            }
+            self.set_status(format!("[!] {error:#}"));
+            return;
+        }
+        self.set_status(if removing {
+            format!("{name} marked as not completed.")
+        } else {
+            format!("{name} marked as completed.")
+        });
+    }
     /// Filtered catalog for the Machines tab; filter matches name,
     /// difficulty, OS, creator or tech tag; `machine_sort` orders the
     /// result. `only_first_blood` keeps machines with an open slot.
     pub fn visible_machines(&self) -> Vec<&Machine> {
         let needle = self.filter.to_lowercase();
+        let auto = self.completed_auto();
         let mut machines: Vec<&Machine> = self
             .data
             .machines
@@ -343,6 +557,7 @@ impl AppState {
                         .iter()
                         .any(|t| t.to_lowercase().contains(&needle)))
                     && (!self.only_first_blood || m.any_slot_open())
+                    && (!self.hide_completed || !self.is_completed_with(&m.slug, &auto))
             })
             .collect();
         match self.machine_sort {
@@ -418,6 +633,8 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
         });
     }
 
@@ -469,6 +686,8 @@ impl AppState {
             readonly: true,
             text: Some(text),
             flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
         });
     }
 
@@ -534,6 +753,8 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: vec!["en"],
+            type_open: false, type_cursor: 0,
         });
     }
 
@@ -614,6 +835,8 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types,
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
         });
     }
 
@@ -940,6 +1163,77 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             }
             return;
         }
+        let (lang_field, lang_open, type_field, type_open) = app
+            .popup
+            .as_ref()
+            .map(|p| {
+                (
+                    p.lang_field_active(),
+                    p.lang_open,
+                    p.type_field_active(),
+                    p.type_open,
+                )
+            })
+            .unwrap_or((false, false, false, false));
+        let panel_open = lang_open || type_open;
+        if panel_open {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = app.popup.as_mut() {
+                        if p.lang_open {
+                            p.move_lang_cursor(-1);
+                        }
+                        if p.type_open {
+                            p.move_type_cursor(-1);
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = app.popup.as_mut() {
+                        if p.lang_open {
+                            p.move_lang_cursor(1);
+                        }
+                        if p.type_open {
+                            p.move_type_cursor(1);
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(p) = app.popup.as_mut() {
+                        if p.lang_open {
+                            p.toggle_lang();
+                        }
+                        if p.type_open {
+                            p.select_type();
+                        }
+                    }
+                }
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Tab => {
+                    if let Some(p) = app.popup.as_mut() {
+                        p.close_lang_panel();
+                        p.close_type_panel();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        if lang_field && matches!(key.code, KeyCode::Char(' ')) {
+            if let Some(p) = app.popup.as_mut() {
+                p.open_lang_panel();
+            }
+            return;
+        }
+        if type_field && matches!(key.code, KeyCode::Char(' ')) {
+            if let Some(p) = app.popup.as_mut() {
+                p.open_type_panel();
+            }
+            return;
+        }
+        // On a picker field with the panel closed, every other key falls
+        // through to the generic match below: push/pop are no-ops there,
+        // Enter still confirms and Esc still cancels.
+
         match key.code {
             KeyCode::Esc => {
                 app.popup = None;
@@ -975,7 +1269,6 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
         }
         return;
     }
-
     match app.input_mode {
         InputMode::Filter => match key.code {
             KeyCode::Esc => {
@@ -1011,6 +1304,24 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 app.only_first_blood = !app.only_first_blood;
                 app.reset_list_position();
             }
+            KeyCode::Char('m') => {
+                if app.tab == Tab::Machines {
+                    app.toggle_completed();
+                    app.reset_list_position();
+                }
+            }
+            KeyCode::Char('x') => {
+                if app.tab == Tab::Machines {
+                    app.hide_completed = !app.hide_completed;
+                    app.reset_list_position();
+                    let note = if app.hide_completed {
+                        "completed machines hidden"
+                    } else {
+                        "completed machines shown"
+                    };
+                    app.set_status(note);
+                }
+            }
             KeyCode::Char('i') => app.open_descripcion_popup(),
             KeyCode::Enter => match app.tab {
                 Tab::Machines => app.open_descripcion_popup(),
@@ -1018,5 +1329,96 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             },
             _ => {}
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn submit_popup() -> Popup {
+        Popup {
+            kind: PopupKind::WriteupSubmit,
+            machine: String::new(),
+            machine_slug: String::new(),
+            buffers: vec![String::new(), "Text".to_string(), "en".to_string()],
+            field: 2,
+            notice: None,
+            readonly: false,
+            text: None,
+            flag_types: Vec::new(),
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: vec!["en"],
+            type_open: false,
+            type_cursor: 0,
+        }
+    }
+
+    fn lang_index(code: &str) -> usize {
+        WRITEUP_LANGS
+            .iter()
+            .position(|(c, _)| *c == code)
+            .unwrap_or_else(|| panic!("language {code} missing from WRITEUP_LANGS"))
+    }
+
+    #[test]
+    fn join_langs_orders_canonically() {
+        assert_eq!(join_langs(&["es", "en"]), "en,es");
+        assert_eq!(join_langs(&[]), "");
+        assert_eq!(join_langs(&["en"]), "en");
+    }
+
+    #[test]
+    fn writeup_langs_snapshot_is_complete() {
+        assert_eq!(WRITEUP_LANGS.len(), 62);
+        assert_eq!(WRITEUP_LANGS.first().map(|(c, _)| *c), Some("en"));
+        assert_eq!(WRITEUP_LANGS.last().map(|(c, _)| *c), Some("none"));
+    }
+
+    #[test]
+    fn toggle_lang_updates_buffer_and_selection() {
+        let mut popup = submit_popup();
+        popup.lang_cursor = lang_index("it");
+        popup.toggle_lang();
+        assert_eq!(popup.buffers[2], "en,it");
+        popup.toggle_lang();
+        assert_eq!(popup.buffers[2], "en");
+        assert_eq!(popup.lang_selected, vec!["en"]);
+        popup.lang_cursor = lang_index("es");
+        popup.toggle_lang();
+        assert_eq!(popup.buffers[2], "en,es");
+    }
+
+    #[test]
+    fn type_select_sets_buffer_single_choice() {
+        let mut popup = submit_popup();
+        popup.field = 1;
+        assert!(popup.type_field_active());
+        popup.open_type_panel();
+        popup.move_type_cursor(1);
+        popup.select_type();
+        assert_eq!(popup.buffers[1], "Video");
+        popup.move_type_cursor(-1);
+        popup.select_type();
+        assert_eq!(popup.buffers[1], "Text");
+    }
+
+    #[test]
+    fn type_field_rejects_text_input() {
+        let mut popup = submit_popup();
+        popup.field = 1;
+        popup.push('x');
+        popup.pop();
+        assert_eq!(popup.buffers[1], "Text");
+    }
+
+    #[test]
+    fn language_field_rejects_text_input() {
+        let mut popup = submit_popup();
+        assert!(popup.lang_field_active());
+        popup.push('x');
+        popup.pop();
+        assert_eq!(popup.buffers[2], "en");
     }
 }

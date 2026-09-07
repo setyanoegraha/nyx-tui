@@ -28,8 +28,9 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 * **Machines** — the full catalog with the site's official difficulty colors (Low/Easy/Medium/Hard), OS (Linux/Windows), tech tags, and first-blood status per machine. Instant `/` filtering and `s` sorting (site order → name → date → difficulty).
 * **First-blood flag submission** — `f` opens a popup to submit User and Root flags (MD5). Slots already taken are shown as read-only notices; open slots are ready for your MD5 hash. Your username is attached automatically.
 * **First-blood filter** — `b` shows only machines with an open first-blood slot, so you can be the first to pwn a fresh release.
-* **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`).
-* **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules).
+* **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`) — the submission popup uses pickers for **type** (Text/Video, single-select) and **language** (all 62 codes of vulnyx.com, multi-select), so nothing gets mistyped.
+* **Completed tracking** — machines you finished turn `✓` green in the list: automatic when one of your writeups is approved on the site, or manually per machine with `m` (persisted locally in `~/.nyx-tui/config.json`). `x` hides completed machines so only pending ones remain.
+* **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules, including the site's staff exclusions so ranks match vulnyx.com).
 * **Username management** — `a` opens the username popup; whatever you set is attached to all submissions and used for your leaderboard position.
 
 ---
@@ -49,13 +50,13 @@ Grab the archive for your platform from the [Releases](https://github.com/setyan
 
 | Platform | Archive |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.1.3-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.1.3-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.1.3-x86_64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.2.0-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.2.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.2.0-x86_64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
@@ -101,6 +102,8 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 | `/` | Filter the current list (type to narrow, `Enter` keeps it, `Esc` clears & exits) |
 | `s` | **Machines** — cycle sort: site order → name → date → difficulty |
 | `b` | **Machines** — show only machines with an open first-blood slot |
+| `m` | **Machines** — mark/unmark the selected machine as completed (stored locally) |
+| `x` | **Machines** — hide/show completed machines |
 | `d` | **Machines** — open the machine's download page in your browser (CAPTCHA + download happen there) |
 | `f` | **Machines** — first-blood flag popup: submit User and/or Root flags (MD5). Slots already taken are shown as read-only notices |
 | `w` | **Machines** — community writeups popup for the selected machine: `j`/`k` select, `Enter` opens the link |
@@ -121,7 +124,7 @@ VulnyX gates machine downloads behind a CAPTCHA image (5 characters, A-Z 0-9) in
 nyx-tui stays out of the way: no in-app download, no image viewer, no manual code entry.
 
 ### Where Your Data Lives
-- `~/.nyx-tui/config.json` — your **username**. Nothing else.
+- `~/.nyx-tui/config.json` — your **username** and locally marked completed machines. Nothing else.
 - No password is stored — VulNyx has no accounts, and the username is self-declared.
 
 ---

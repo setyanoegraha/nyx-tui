@@ -3,10 +3,13 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Tabs, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Tabs};
 use ratatui::Frame;
 
-use super::{ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WriteupsPopup};
+use super::{
+    ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WRITEUP_LANGS,
+    WRITEUP_TYPES, WriteupsPopup,
+};
 
 const ACCENT: Color = Color::Rgb(136, 192, 208); // Nord8 frost blue
 const WARN: Color = Color::Rgb(235, 203, 139); // Nord13 yellow
@@ -96,6 +99,7 @@ fn draw_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
 
 fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let visible = app.visible_machines();
+    let auto_done = app.completed_auto();
     let header = Row::new([
         "Machine",
         "Difficulty",
@@ -109,6 +113,7 @@ fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let rows: Vec<Row> = visible
         .iter()
         .map(|m| {
+            let done = app.is_completed_with(&m.slug, &auto_done);
             let difficulty = m.difficulty.to_uppercase();
             let diff_span = match difficulty.as_str() {
                 "LOW" => Span::styled(difficulty, Style::new().fg(FROST)),
@@ -129,7 +134,14 @@ fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
                 (false, false) => Span::styled("taken", Style::new().dim()),
             };
             Row::new([
-                Span::styled(m.name.clone(), Style::new().fg(BRIGHT).bold()),
+                Span::styled(
+                    if done { format!("✓ {}", m.name) } else { m.name.clone() },
+                    if done {
+                        Style::new().fg(OK).bold()
+                    } else {
+                        Style::new().fg(BRIGHT).bold()
+                    },
+                ),
                 diff_span,
                 os_span,
                 Span::styled(m.creator.clone(), Style::new().fg(PURPLE)),
@@ -170,6 +182,18 @@ fn filter_block(app: &AppState) -> Block<'_> {
                 .iter()
                 .filter(|m| m.any_slot_open())
                 .count();
+            let auto_done = app.completed_auto();
+            let done_count = app
+                .data
+                .machines
+                .iter()
+                .filter(|m| app.is_completed_with(&m.slug, &auto_done))
+                .count();
+            let done_note = if app.hide_completed {
+                format!(" · done: {done_count} (hidden)")
+            } else {
+                format!(" · done: {done_count}")
+            };
             let fb_note = if app.only_first_blood {
                 " · first blood only".to_string()
             } else if open > 0 {
@@ -178,10 +202,11 @@ fn filter_block(app: &AppState) -> Block<'_> {
                 String::new()
             };
             format!(
-                " Machines {}/{}{}{} ",
+                " Machines {}/{}{}{}{} ",
                 app.visible_machines().len(),
                 app.data.machines.len(),
                 app.machine_sort.indicator(),
+                done_note,
                 fb_note
             )
         }
@@ -326,46 +351,35 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
 }
 
 fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
-    // Description popup: read-only, wrapped details.
+    // Description popup: read-only, wrapped details, sized to its content.
     if popup.kind == PopupKind::Descripcion {
         let width = area.width.saturating_sub(8).max(40);
-        let box_area = popup_area(area, width, 16);
-        frame.render_widget(Clear, box_area);
+        let inner = usize::from(width).saturating_sub(2);
         let mut lines = Vec::new();
         if let Some(text) = &popup.text {
             for line in text.split('\n') {
-                lines.push(Line::from(Span::raw(line.to_string())));
+                lines.extend(wrap_text(line, inner).into_iter().map(Line::from));
             }
         }
+        let height = lines.len() as u16 + 4; // blank + "Esc close" + 2 borders
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("Esc close", Style::new().dim())));
+        let box_area = popup_area(area, width, height);
+        frame.render_widget(Clear, box_area);
         let block = Block::bordered()
             .title(Span::styled(
                 format!(" {} ", popup.machine),
                 Style::new().fg(ACCENT).bold(),
             ))
             .border_style(Style::new().fg(ACCENT));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(block)
-                .wrap(Wrap { trim: false }),
-            box_area,
-        );
+        frame.render_widget(Paragraph::new(lines).block(block), box_area);
         return;
     }
 
-    let height = match popup.kind {
-        PopupKind::Username => 8,
-        PopupKind::WriteupSubmit => 11,
-        PopupKind::Flag => 11,
-        _ => 8,
-    };
-    let height = height + u16::from(popup.notice.is_some());
-    // Clamp popup height to the available body area
-    let height = height.min(area.height.saturating_sub(4));
-    let box_area = popup_area(area, 76, height);
-    frame.render_widget(Clear, box_area);
-
+    // Input popups: 76-wide box whose inner width shrinks on narrow
+    // terminals so no line clips inside the border; height follows the
+    // wrapped content (picker rows included).
+    let inner = usize::from(area.width).saturating_sub(2).min(74).max(1);
     let (title, prompts, hint): (String, Vec<&str>, &str) = match popup.kind {
         PopupKind::Flag => (
             format!(" First blood — {} ", popup.machine),
@@ -374,8 +388,8 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         ),
         PopupKind::WriteupSubmit => (
             format!(" Submit writeup — {} ", popup.machine),
-            vec!["URL:", "Type (Text/Video):", "Language (en/es/..):"],
-            "Enter submit · ↑↓/Tab switch field · Esc cancel",
+            vec!["URL:", "Type:", "Language:"],
+            "Enter submit · Space pick type/language · ↑↓/Tab switch field · Esc cancel",
         ),
         PopupKind::Username => (
             " Your username ".to_string(),
@@ -387,10 +401,13 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
 
     let mut lines = Vec::new();
     if let Some(notice) = &popup.notice {
-        lines.push(Line::from(Span::styled(
-            format!("⚠ {notice}"),
-            Style::new().fg(WARN).bold(),
-        )));
+        let notice = format!("⚠ {notice}");
+        for chunk in wrap_text(&notice, inner) {
+            lines.push(Line::from(Span::styled(
+                chunk,
+                Style::new().fg(WARN).bold(),
+            )));
+        }
         lines.push(Line::from(""));
     }
     for (index, prompt) in prompts.iter().enumerate() {
@@ -402,16 +419,68 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
         } else {
             Style::new().dim()
         };
-        lines.push(Line::from(Span::styled(
-            format!("{prompt} {raw}{marker}"),
-            style,
-        )));
+        let text = format!("{prompt} {raw}{marker}");
+        for chunk in wrap_text(&text, inner) {
+            lines.push(Line::from(Span::styled(chunk, style)));
+        }
         if index + 1 < prompts.len() {
             lines.push(Line::from(""));
         }
     }
+    if popup.type_open {
+        lines.push(Line::from(""));
+        for chunk in wrap_text("↑↓ move · Space select · Enter/Esc done", inner) {
+            lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
+        }
+        for (index, label) in WRITEUP_TYPES.iter().enumerate() {
+            let mark = if popup.buffers.get(1).map(String::as_str) == Some(*label) {
+                "✓"
+            } else {
+                " "
+            };
+            let mut style = Style::new();
+            if index == popup.type_cursor {
+                style = style.bg(HL_BG).add_modifier(Modifier::BOLD);
+            }
+            lines.push(Line::from(Span::styled(format!("{mark} {label}"), style)));
+        }
+    }
+    if popup.lang_open {
+        lines.push(Line::from(""));
+        for chunk in wrap_text("↑↓ move · Space toggle · Enter/Esc done", inner) {
+            lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
+        }
+        let visible = 10.min(WRITEUP_LANGS.len());
+        let start = popup.lang_cursor.saturating_sub(visible - 1);
+        for (index, (code, label)) in WRITEUP_LANGS
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(visible)
+        {
+            let mark = if popup.lang_selected.contains(code) {
+                "✓"
+            } else {
+                " "
+            };
+            let mut style = Style::new();
+            if index == popup.lang_cursor {
+                style = style.bg(HL_BG).add_modifier(Modifier::BOLD);
+            }
+            lines.push(Line::from(Span::styled(
+                format!("{mark} {label} ({code})"),
+                style,
+            )));
+        }
+    }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(hint, Style::new().dim())));
+    for chunk in wrap_text(hint, inner) {
+        lines.push(Line::from(Span::styled(chunk, Style::new().dim())));
+    }
+
+    let height = lines.len() as u16 + 2; // borders
+    let box_area = popup_area(area, 76, height);
+    frame.render_widget(Clear, box_area);
 
     let block = Block::bordered()
         .title(Span::styled(title, Style::new().fg(WARN).bold()))
@@ -421,19 +490,23 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup) {
 }
 
 fn draw_report(frame: &mut Frame, area: Rect, report: &ActionReport) {
-    let height = (report.entries.len() as u16 * 2 + 4).clamp(5, 14);
-    let width = 66;
+    let (width, height) = report_box(&report.entries, (area.width, area.height));
     let box_area = popup_area(area, width, height);
     frame.render_widget(Clear, box_area);
 
+    // `report_box` wraps entry text at inner - 2; the "  " indent is
+    // prefixed per wrapped line so every row stays inside the box.
+    let text_width = usize::from(width).saturating_sub(4);
     let mut lines = vec![Line::from("")];
     for (kind, text) in &report.entries {
-        let span = match kind {
-            ReportKind::Success => Span::styled(text.clone(), Style::new().fg(OK).bold()),
-            ReportKind::Failure => Span::styled(text.clone(), Style::new().fg(BAD).bold()),
-            ReportKind::Info => Span::styled(text.clone(), Style::new().fg(WARN)),
+        let style = match kind {
+            ReportKind::Success => Style::new().fg(OK).bold(),
+            ReportKind::Failure => Style::new().fg(BAD).bold(),
+            ReportKind::Info => Style::new().fg(WARN),
         };
-        lines.push(Line::from(format!("  {span}")));
+        for chunk in wrap_text(text, text_width) {
+            lines.push(Line::from(Span::styled(format!("  {chunk}"), style)));
+        }
         lines.push(Line::from(""));
     }
     lines.push(Line::from(Span::styled(
@@ -518,7 +591,8 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         match app.popup.as_ref().map(|p| p.kind) {
             Some(PopupKind::Flag) => "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string(),
             Some(PopupKind::WriteupSubmit) => {
-                "Enter submit · ↑↓/Tab switch field · Esc cancel".to_string()
+                "Enter submit · Space pick type/language · ↑↓/Tab switch field · Esc cancel"
+                    .to_string()
             }
             Some(PopupKind::Username) => "Enter save · Esc cancel".to_string(),
             Some(PopupKind::Descripcion) => "Esc close".to_string(),
@@ -528,7 +602,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         match app.input_mode {
             InputMode::Filter => "Enter confirm · Esc clears & exits".to_string(),
             InputMode::Normal => match app.tab {
-                Tab::Machines => "jk move · / filter · s sort · d download · f flag · w writeups · u submit · b first blood · i info".to_string(),
+                Tab::Machines => "jk move · / filter · s sort · d download · f flag · w writeups · u submit · b blood · m done · x hide · i info".to_string(),
                 Tab::Progress => "jk move · Enter open writeup".to_string(),
             },
         }
@@ -565,6 +639,68 @@ fn visible_rows_in(height: u16) -> usize {
     height.saturating_sub(3) as usize
 }
 
+/// Greedy word-wrap. Splits on spaces, accumulates words while
+/// `current.len() + 1 + word.len() <= width` (char counts = display width;
+/// ASCII-oriented: used for server/notice text, never language label rows).
+/// Words longer than `width` are hard-broken at `width` chars;
+/// `wrap_text("", _)` yields one empty line.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    for word in text.split(' ') {
+        if word.is_empty() {
+            if current_len > 0 && current_len < width {
+                current.push(' ');
+                current_len += 1;
+            }
+            continue;
+        }
+        let mut rest = word;
+        while !rest.is_empty() {
+            let rest_len = rest.chars().count();
+            let sep = usize::from(current_len > 0);
+            if current_len + sep + rest_len <= width {
+                if sep == 1 {
+                    current.push(' ');
+                }
+                current.push_str(rest);
+                current_len += sep + rest_len;
+                rest = "";
+            } else if current_len == 0 {
+                let head: String = rest.chars().take(width).collect();
+                out.push(head.clone());
+                rest = &rest[head.len()..];
+            } else {
+                out.push(std::mem::take(&mut current));
+                current_len = 0;
+            }
+        }
+    }
+    out.push(current);
+    out
+}
+
+/// Box size for the report popup: width follows the longest entry (inner
+/// floored at 42, capped at 76), height fits every wrapped line. Shared with
+/// the sizing tests; `draw_report` renders inside it.
+fn report_box(entries: &[(ReportKind, String)], area: (u16, u16)) -> (u16, u16) {
+    let inner = entries
+        .iter()
+        .map(|(_, text)| 2 + text.chars().count())
+        .max()
+        .unwrap_or(0)
+        .clamp(42, 76);
+    let mut lines = 2; // leading blank + hint
+    for (_, text) in entries {
+        lines += wrap_text(text, inner - 2).len() + 1; // entry + blank
+    }
+    let guide = Rect::new(0, 0, area.0, area.1);
+    let box_area = popup_area(guide, inner as u16 + 2, lines as u16 + 2);
+    (box_area.width, box_area.height)
+}
+
 fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
     let height = height.min(area.height);
@@ -573,5 +709,35 @@ fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
         y: area.y + (area.height.saturating_sub(height)) / 2,
         width,
         height,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_text_wraps_breaks_and_preserves_empty() {
+        assert_eq!(wrap_text("aa bb cc", 5), vec!["aa bb", "cc"]);
+        assert_eq!(wrap_text("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
+        assert_eq!(wrap_text("", 10), vec![String::new()]);
+    }
+
+    #[test]
+    fn report_box_caps_width_and_fits_area() {
+        let long = vec![(ReportKind::Info, "a".repeat(200))];
+        let (width, height) = report_box(&long, (80, 24));
+        assert_eq!(width, 78); // inner capped at 76 + 2 borders
+        // 200 chars wrapped at inner-2 -> 3 lines; blanks + hint + borders.
+        assert_eq!(height, 2 + 3 + 1 + 2);
+
+        let huge = vec![(ReportKind::Failure, "b".repeat(400))];
+        let (width, height) = report_box(&huge, (80, 24));
+        assert_eq!(width, 78);
+        assert!(height <= 24, "report popup must fit an 80x24 area");
+
+        // Narrow terminal: popup_area clamps both dimensions.
+        let (width, height) = report_box(&huge, (30, 6));
+        assert_eq!((width, height), (30, 6));
     }
 }

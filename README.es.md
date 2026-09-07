@@ -28,9 +28,9 @@ Un comando, una pantalla: al ejecutar `nyx` se abre el dashboard. Escrito en **R
 * **Machines** — el catálogo completo con los colores oficiales de dificultad del sitio (Low/Easy/Medium/Hard), SO (Linux/Windows), etiquetas de tecnologías y estado de first-blood por máquina. Filtrado instantáneo con `/` y ordenamiento con `s` (orden del sitio → nombre → fecha → dificultad).
 * **Envío de flags first-blood** — `f` abre una ventana para enviar las flags User y Root (MD5). Los huecos ya ocupados se muestran como avisos de solo lectura; los huecos libres quedan listos para tu hash MD5. Tu nombre de usuario se adjunta automáticamente.
 * **Filtro first-blood** — `b` muestra solo las máquinas con algún hueco de first-blood libre, para que seas el primero en completear un lanzamiento nuevo.
-* **Writeups** — ventana de writeups de la comunidad por máquina (`w`): artículos 📝 y vídeos 🎥 con autor, idioma y fecha. Publica el tuyo (`u`).
-* **Progress** — tus first bloods, writeups y posición en el leaderboard (calculada a partir de los datos públicos con las reglas de puntuación del propio sitio).
-* **Gestión del nombre de usuario** — `a` abre la ventana de usuario; el nombre que pongas se adjunta a todos los envíos y se usa para calcular tu posición en el leaderboard.
+* **Writeups** — ventana de writeups de la comunidad por máquina (`w`): artículos 📝 y vídeos 🎥 con autor, idioma y fecha. Publica el tuyo (`u`) — la ventana de envío usa selectores para el **tipo** (Text/Video, selección única) y el **idioma** (los 62 códigos de vulnyx.com, multi-selección), así no se escribe nada a mano.
+* **Seguimiento de completadas** — las máquinas que terminas se marcan `✓` en verde: automático cuando uno de tus writeups se publica en el sitio, o manual por máquina con `m` (guardado localmente en `~/.nyx-tui/config.json`). `x` oculta las completadas para quedarte solo con las pendientes.
+* **Progress** — tus first bloods, writeups y posición en el leaderboard (calculada a partir de los datos públicos con las reglas de puntuación del propio sitio, incluidas las exclusiones de staff del sitio, para que el puesto coincida con vulnyx.com).
 
 ---
 
@@ -49,13 +49,13 @@ Descarga el archivo de tu plataforma desde la página de [Releases](https://gith
 
 | Plataforma | Archivo |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.1.3-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.1.3-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.1.3-x86_64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.2.0-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.2.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.2.0-x86_64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.1.3-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
@@ -101,6 +101,8 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 | `/` | Filtrar la lista actual (escribe para acotar, `Enter` confirma, `Esc` limpia y sale) |
 | `s` | **Machines** — ciclar orden: orden del sitio → nombre → fecha → dificultad |
 | `b` | **Machines** — mostrar solo máquinas con hueco de first-blood libre |
+| `m` | **Machines** — marcar/desmarcar la máquina seleccionada como completada (se guarda localmente) |
+| `x` | **Machines** — ocultar/mostrar las máquinas completadas |
 | `d` | **Machines** — abrir la página de descarga de la máquina en tu navegador (CAPTCHA + descarga ocurren ahí) |
 | `f` | **Machines** — ventana de flags first-blood: enviar flags User y/o Root (MD5). Los huecos ocupados se muestran como avisos de solo lectura |
 | `w` | **Machines** — ventana de writeups de la comunidad de la máquina seleccionada: `j`/`k` para elegir, `Enter` abre el enlace |
@@ -121,7 +123,7 @@ VulnyX protege la descarga de máquinas con una imagen CAPTCHA (5 caracteres, A-
 nyx-tui no se mete en camino: sin descarga integrada, sin visor de imágenes, sin escribir códigos a mano.
 
 ### Dónde viven tus datos
-- `~/.nyx-tui/config.json` — tu **nombre de usuario**. Nada más.
+- `~/.nyx-tui/config.json` — tu **nombre de usuario** y las máquinas marcadas como completadas localmente. Nada más.
 - No se guarda ninguna contraseña — VulNyx no tiene cuentas y el nombre de usuario lo declara cada uno.
 
 ---

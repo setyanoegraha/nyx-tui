@@ -2,20 +2,25 @@
 //! submissions and for computing your leaderboard position), stored in
 //! ~/.nyx-tui/config.json. VulnyX has no accounts and no passwords — nothing
 //! sensitive is stored here.
-
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-
+use anyhow::{Context, Result};
 const CONFIG_DIR_NAME: &str = ".nyx-tui";
 const CONFIG_FILE_NAME: &str = "config.json";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 struct ConfigFile {
     #[serde(default)]
     username: String,
+    /// Machine slugs manually marked as completed in the TUI (`m`).
+    #[serde(default)]
+    completed: Vec<String>,
+    /// Unknown keys from other versions are preserved on save.
+    #[serde(flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 pub struct ConfigManager {
@@ -23,10 +28,16 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
+    /// Default manager rooted at the user's home directory.
     pub fn new() -> Self {
         let dir = home::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(CONFIG_DIR_NAME);
+        Self::in_dir(dir)
+    }
+
+    /// Manager rooted at an explicit directory (used by tests).
+    pub fn in_dir(dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&dir);
         Self {
             config_file: dir.join(CONFIG_FILE_NAME),
@@ -45,14 +56,95 @@ impl ConfigManager {
             .unwrap_or_default()
     }
 
+    pub fn completed_machines(&self) -> Vec<String> {
+        self.read_config()
+            .map(|cfg| cfg.completed)
+            .unwrap_or_default()
+    }
+
+    /// Persists the manual completed-machines list (slugs).
+    pub fn save_completed_machines(&self, slugs: Vec<String>) -> Result<()> {
+        let mut cfg = self.read_config().unwrap_or_default();
+        cfg.completed = slugs;
+        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
+            .with_context(|| "Failed to write the configuration file")?;
+        Ok(())
+    }
+
     /// Persists the username.
     pub fn save_username(&self, username: &str) -> Result<()> {
         let cfg = ConfigFile {
             username: username.trim().to_string(),
+            completed: self.completed_machines(),
+            extra: BTreeMap::new(),
         };
         fs::write(&self.config_file, serde_json::to_string(&cfg)?)
             .with_context(|| "Failed to write the configuration file")?;
         Ok(())
+    }
+
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "nyx-config-test-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn completed_roundtrip_and_username_preserved() {
+        let dir = temp_dir("roundtrip");
+        let manager = ConfigManager::in_dir(dir.clone());
+        manager.save_username("tester").unwrap();
+        manager
+            .save_completed_machines(vec!["alpha".into(), "beta".into()])
+            .unwrap();
+        let manager = ConfigManager::in_dir(dir.clone());
+        assert_eq!(manager.username(), "tester");
+        assert_eq!(manager.completed_machines(), vec!["alpha", "beta"]);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_completed_key_reads_empty() {
+        let dir = temp_dir("legacy");
+        fs::write(
+            dir.join(CONFIG_FILE_NAME),
+            r#"{"username":"oldschool"}"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::in_dir(dir.clone());
+        assert_eq!(manager.username(), "oldschool");
+        assert!(manager.completed_machines().is_empty());
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn unknown_keys_survive_a_save() {
+        let dir = temp_dir("extra");
+        fs::write(
+            dir.join(CONFIG_FILE_NAME),
+            r#"{"username":"u","download_dir":"/tmp/labs","future":42}"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::in_dir(dir.clone());
+        manager.save_completed_machines(vec!["zeta".into()]).unwrap();
+        let raw = fs::read_to_string(dir.join(CONFIG_FILE_NAME)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(value["download_dir"], "/tmp/labs");
+        assert_eq!(value["future"], 42);
+        assert_eq!(value["completed"][0], "zeta");
+        fs::remove_dir_all(dir).ok();
     }
 }
 

@@ -53,7 +53,8 @@ impl WriteupManager {
     }
 
     /// Submits a writeup URL for a machine. `tipo` is "Text" or "Video",
-    /// `language` one of the platform's accepted codes (es/en/fr/de/pt/zh/other).
+    /// `language` is one of the platform's 62 accepted codes (mirrors vulnyx.com
+    /// `WRITEUP_LANGS`), or a comma-joined list of several.
     /// Submissions are human-reviewed within 48h.
     pub async fn submit(
         &self,
