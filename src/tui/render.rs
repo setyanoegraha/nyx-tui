@@ -103,7 +103,7 @@ fn draw_tabs(frame: &mut Frame, area: Rect, app: &AppState) {
     frame.render_widget(tabs, area);
 }
 
-fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
+fn draw_machines(frame: &mut Frame, area: Rect, app: &AppState) {
     let visible = app.visible_machines();
     let auto_done = app.completed_auto();
     let header = Row::new([
@@ -175,8 +175,6 @@ fn draw_machines(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     let mut state = TableState::default().with_selected(Some(app.selected));
     frame.render_stateful_widget(table, area, &mut state);
-
-    app.set_visible_rows(visible_rows_in(area.height));
 }
 
 fn filter_block(app: &AppState) -> Block<'_> {
@@ -247,7 +245,7 @@ fn filter_block(app: &AppState) -> Block<'_> {
     block
 }
 
-fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
+fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
     let username = crate::config::ConfigManager::new().username();
     let username = if username.is_empty() { "-" } else { &username };
     let [left, right] =
@@ -263,42 +261,39 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
     let position = position.unwrap_or_else(|| "-".to_string());
     let points = points.unwrap_or(0);
 
+    let lang = app.lang;
+    let heading = |text: String| Line::from(Span::styled(text, Style::new().fg(ACCENT).bold()));
     let mut lines = vec![
-        Line::from(Span::styled("[ Identity ]", Style::new().fg(ACCENT).bold())),
-        Line::from(format!("  Username: {username}")),
-        Line::from("  (self-declared — attached to flags & writeups)"),
-        Line::from(""),
-        Line::from(Span::styled(
-            "[ First Bloods ]",
-            Style::new().fg(ACCENT).bold(),
+        heading(app.tr(Msg::ProgressIdentity)),
+        Line::from(format!(
+            "  {}: {username}",
+            app.tr(Msg::PromptUsername).trim_end_matches(':')
         )),
+        Line::from(format!("  {}", app.tr(Msg::ProgressSelfDeclared))),
+        Line::from(""),
+        heading(app.tr(Msg::ProgressFirstBloods)),
     ];
     if first_bloods.is_empty() {
-        lines.push(Line::from(
-            "  None yet — first to submit a flag gets the blood.",
-        ));
+        lines.push(Line::from(format!("  {}", app.tr(Msg::ProgressNoBlood))));
     } else {
         for (machine, kind) in &first_bloods {
             lines.push(Line::from(format!("  ● {} — {kind}", machine.name)));
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "[ Statistics ]",
-        Style::new().fg(ACCENT).bold(),
-    )));
-    lines.push(Line::from(format!(
-        "  First blood  : user {} · root {}",
-        first_bloods.iter().filter(|(_, k)| *k == "user").count(),
-        first_bloods.iter().filter(|(_, k)| *k == "root").count(),
-    )));
-    lines.push(Line::from(format!(
-        "  Writeups     : {}",
-        app.own_writeups_rows().len()
-    )));
-    lines.push(Line::from(format!(
-        "  Leaderboard  : #{position} ({points} pts)"
-    )));
+    lines.push(heading(app.tr(Msg::ProgressStatistics)));
+    for line in app
+        .tr(Msg::ProgressStats(
+            first_bloods.iter().filter(|(_, k)| *k == "user").count() as u64,
+            first_bloods.iter().filter(|(_, k)| *k == "root").count() as u64,
+            app.own_writeups_rows().len(),
+            position.clone(),
+            points,
+        ))
+        .split('\n')
+    {
+        lines.push(Line::from(format!("  {line}")));
+    }
 
     let left_area = Rect {
         x: left.x + 2,
@@ -349,7 +344,7 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
     .block(
         Block::bordered()
             .title(Span::styled(
-                format!(" Your writeups ({}) ", own.len()),
+                render_msg(lang, Msg::YourWriteups(own.len())),
                 Style::new().fg(ACCENT).bold(),
             ))
             .border_style(Style::new().dim()),
@@ -357,8 +352,6 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &mut AppState) {
 
     let mut state = TableState::default().with_selected(Some(app.selected));
     frame.render_stateful_widget(table, right, &mut state);
-
-    app.set_visible_rows(visible_rows_in(right.height));
 }
 
 fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
@@ -390,11 +383,20 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
     // Input popups: 76-wide box whose inner width shrinks on narrow
     // terminals so no line clips inside the border; height follows the
     // wrapped content (picker rows included).
-    let inner = usize::from(area.width).saturating_sub(2).min(74).max(1);
+    let inner = usize::from(area.width).saturating_sub(2).clamp(1, 74);
     let (title, prompts, hint): (String, Vec<String>, String) = match popup.kind {
         PopupKind::Flag => (
             Msg::SubmitFlagTitle(popup.machine.clone()).render(lang),
-            vec![Msg::PromptUserFlag.render(lang), Msg::PromptRootFlag.render(lang)],
+            // Prompts follow the open slots, not a fixed pair, or a root hash
+            // lands in a field labelled "User".
+            popup
+                .flag_types
+                .iter()
+                .map(|flag_type| match *flag_type {
+                    "user" => Msg::PromptUserFlag.render(lang),
+                    _ => Msg::PromptRootFlag.render(lang),
+                })
+                .collect(),
             Msg::HintSubmit.render(lang),
         ),
         PopupKind::WriteupSubmit => (
@@ -586,7 +588,7 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup, lan
     .block(
         Block::bordered()
             .title(Span::styled(
-                format!(" Writeups — {} ", popup.machine),
+                render_msg(lang, Msg::WriteupsTitle(popup.machine.clone())),
                 Style::new().fg(ACCENT).bold(),
             ))
             .border_style(Style::new().fg(ACCENT)),
@@ -646,11 +648,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         Paragraph::new(status).alignment(ratatui::layout::Alignment::Right),
         status_area,
     );
-}
-
-/// How many table rows fit in `height` (border 2 + header 1).
-fn visible_rows_in(height: u16) -> usize {
-    height.saturating_sub(3) as usize
 }
 
 /// Greedy word-wrap. Splits on spaces, accumulates words while
