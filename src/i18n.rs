@@ -841,7 +841,10 @@ mod tests {
 
     #[test]
     fn help_text_covers_every_documented_key() {
-        for key in ["Tab", "j", "k", "g", "d", "D", "f", "w", "u", "b", "m", "x", "i", "s", "h", "r", "a", "l", "q"] {
+        for key in [
+            "Tab", "j", "k", "g", "d", "D", "f", "w", "u", "b", "m", "x", "i", "s", "h", "r", "a",
+            "l", "q",
+        ] {
             for lang in [Lang::En, Lang::Es] {
                 let text = Msg::HelpText.render(lang);
                 assert!(text.contains(key), "{key} missing from {lang:?} help");
@@ -854,7 +857,11 @@ mod tests {
         for lang in [Lang::En, Lang::Es] {
             for msg in [Msg::FooterMachines, Msg::FooterGlobal] {
                 let line = msg.render(lang);
-                assert!(line.chars().count() <= 90, "{line} is {} chars", line.chars().count());
+                assert!(
+                    line.chars().count() <= 90,
+                    "{line} is {} chars",
+                    line.chars().count()
+                );
             }
         }
     }

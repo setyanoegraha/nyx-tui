@@ -690,8 +690,11 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -715,8 +718,11 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -736,8 +742,11 @@ impl AppState {
             readonly: true,
             text: Some(self.tr(Msg::HelpText)),
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -771,8 +780,11 @@ impl AppState {
             readonly: true,
             text: Some(text),
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -807,17 +819,22 @@ impl AppState {
                 machine.platforms.join(", "),
                 machine.size.clone(),
             )),
-            self.tr(Msg::DescCreator(machine.creator.clone(), machine.release_date.clone())),
+            self.tr(Msg::DescCreator(
+                machine.creator.clone(),
+                machine.release_date.clone(),
+            )),
             self.tr(Msg::DescMd5)
                 + " "
-                + if machine.md5.is_empty() { "-" } else { &machine.md5 },
-            self.tr(Msg::DescTags(
-                if machine.tech_tags.is_empty() {
-                    "-".to_string()
+                + if machine.md5.is_empty() {
+                    "-"
                 } else {
-                    machine.tech_tags.join(", ")
+                    &machine.md5
                 },
-            )),
+            self.tr(Msg::DescTags(if machine.tech_tags.is_empty() {
+                "-".to_string()
+            } else {
+                machine.tech_tags.join(", ")
+            })),
             String::new(),
             self.tr(Msg::DescBloodUser(user_line)),
             self.tr(Msg::DescBloodRoot(root_line)),
@@ -833,8 +850,11 @@ impl AppState {
             readonly: true,
             text: Some(text),
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -901,8 +921,11 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types: Vec::new(),
-            lang_open: false, lang_cursor: 0, lang_selected: vec!["en"],
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: vec!["en"],
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -936,10 +959,7 @@ impl AppState {
             self.report = Some(ActionReport {
                 title: format!(" First blood — {} ", machine.name),
                 entries: vec![
-                    (
-                        ReportKind::Failure,
-                        self.tr(Msg::SlotsTaken),
-                    ),
+                    (ReportKind::Failure, self.tr(Msg::SlotsTaken)),
                     (
                         ReportKind::Info,
                         self.tr(Msg::BloodHolders(
@@ -985,8 +1005,11 @@ impl AppState {
             readonly: false,
             text: None,
             flag_types,
-            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
-            type_open: false, type_cursor: 0,
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
             scroll: 0,
         });
     }
@@ -1037,17 +1060,15 @@ impl AppState {
             PopupKind::DownloadDir => {
                 let value = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
                 match crate::config::resolve_download_dir(&value) {
-                    Ok(dir) => {
-                        match crate::config::ConfigManager::new().save_download_dir(&dir) {
-                            Ok(()) => self.set_status(
-                                self.tr(Msg::DownloadDirSet(dir.display().to_string())),
-                            ),
-                            Err(error) => {
-                                self.popup = Some(popup);
-                                self.set_status(format!("[!] {error:#}"));
-                            }
+                    Ok(dir) => match crate::config::ConfigManager::new().save_download_dir(&dir) {
+                        Ok(()) => {
+                            self.set_status(self.tr(Msg::DownloadDirSet(dir.display().to_string())))
                         }
-                    }
+                        Err(error) => {
+                            self.popup = Some(popup);
+                            self.set_status(format!("[!] {error:#}"));
+                        }
+                    },
                     Err(error) => {
                         // Keep the typed path so it can be fixed in place.
                         self.popup = Some(popup);
@@ -1222,9 +1243,7 @@ fn event_loop(
         if let Some(action) = app.pending_action.take() {
             let label = match action.kind {
                 ActionKind::SubmitFlag => app.tr(Msg::SubmittingFlag(action.machine.clone())),
-                ActionKind::SubmitWriteup => {
-                    app.tr(Msg::SubmittingWriteup(action.machine.clone()))
-                }
+                ActionKind::SubmitWriteup => app.tr(Msg::SubmittingWriteup(action.machine.clone())),
                 ActionKind::Download => app.tr(Msg::CaptchaSolving(action.machine.clone())),
             };
             app.fetching = Some(label);
@@ -1569,15 +1588,12 @@ mod tests {
     struct CompletedGuard(Vec<String>);
     impl Drop for CompletedGuard {
         fn drop(&mut self) {
-            let _ = crate::config::ConfigManager::new()
-                .save_completed_machines(self.0.clone());
+            let _ = crate::config::ConfigManager::new().save_completed_machines(self.0.clone());
         }
     }
 
     fn app_with_one_machine() -> (AppState, CompletedGuard) {
-        let guard = CompletedGuard(
-            crate::config::ConfigManager::new().completed_machines(),
-        );
+        let guard = CompletedGuard(crate::config::ConfigManager::new().completed_machines());
         let data = TuiData {
             machines: vec![machine_fixture()],
             writeups: Vec::new(),

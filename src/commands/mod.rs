@@ -5,11 +5,11 @@
 use anyhow::Result;
 
 use crate::config::ConfigManager;
+use crate::i18n::Msg;
 use crate::modules::flags::{FlagManager, FlagType};
 use crate::modules::machines::MachineFetcher;
 use crate::modules::session::NyxClient;
 use crate::modules::writeups::WriteupManager;
-use crate::i18n::Msg;
 use crate::tui::{ActionKind, ActionReport, ReportKind, TuiAction, TuiData};
 
 pub async fn tui_cmd() -> Result<()> {
@@ -120,7 +120,11 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
             })
         }
         ActionKind::Download => {
-            let url = action.values.first().map(|(_, v)| v.clone()).unwrap_or_default();
+            let url = action
+                .values
+                .first()
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
             let name = action
                 .values
                 .get(1)
@@ -164,7 +168,8 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                                 ReportKind::Failure,
                                 Msg::DownloadFailed(format!("{error:#}")).render(action.lang),
                             ));
-                            let status = Msg::DownloadFailed(format!("{error:#}")).render(action.lang);
+                            let status =
+                                Msg::DownloadFailed(format!("{error:#}")).render(action.lang);
                             (entries, status)
                         }
                     }

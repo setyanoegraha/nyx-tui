@@ -105,12 +105,9 @@ pub fn sanitize_filename(name: &str) -> String {
 fn find_proton_link(page: &str) -> Option<String> {
     let start = page.find("https://drive.proton.me/")?;
     let rest = &page[start..];
-    let end = rest
-        .find(['"', '\'', '<', ' ', '\n'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['"', '\'', '<', ' ', '\n']).unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
-
 
 #[cfg(test)]
 mod tests {

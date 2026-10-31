@@ -163,11 +163,7 @@ mod tests {
 
     #[test]
     fn placeholders_are_ignored_like_on_the_site() {
-        let machines = vec![
-            machine("--", "-"),
-            machine("", "  "),
-            Machine::default(),
-        ];
+        let machines = vec![machine("--", "-"), machine("", "  "), Machine::default()];
         let list = compute(&machines, &[]);
         assert!(
             list.is_empty(),
