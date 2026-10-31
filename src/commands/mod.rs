@@ -51,7 +51,9 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
     match action.kind {
         ActionKind::SubmitFlag => {
             let username = ConfigManager::new().username();
-            let mut reports = Vec::new();
+            let mut entries = Vec::new();
+            let mut accepted = 0usize;
+            let mut failed = 0usize;
             for (_, value) in &action.values {
                 let Some((flag_type, flag_value)) = value.split_once(':') else {
                     continue;
@@ -60,26 +62,40 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                     "user" => FlagType::User,
                     _ => FlagType::Root,
                 };
-                let message = FlagManager::new(client.clone())
+                // One rejected flag must not discard an accepted one, so each
+                // submission reports itself instead of aborting the loop.
+                match FlagManager::new(client.clone())
                     .submit(&action.machine, flag_type, &username, flag_value)
-                    .await?;
-                reports.push((
-                    flag_type.as_str().to_string(),
-                    Msg::FlagAccepted(flag_type.as_str(), message).render(action.lang),
-                ));
+                    .await
+                {
+                    Ok(message) => {
+                        accepted += 1;
+                        entries.push((
+                            ReportKind::Success,
+                            Msg::FlagAccepted(flag_type.as_str(), message).render(action.lang),
+                        ));
+                    }
+                    Err(error) => {
+                        failed += 1;
+                        entries.push((
+                            ReportKind::Failure,
+                            format!("{}: {error:#}", flag_type.as_str()),
+                        ));
+                    }
+                }
             }
-            if reports.is_empty() {
+            if entries.is_empty() {
                 anyhow::bail!("{}", Msg::NoFlagSubmitted.render(action.lang));
             }
-            let entries = reports
-                .iter()
-                .map(|(_, text)| (ReportKind::Success, text.clone()))
-                .collect();
-            let status = Msg::FlagsSubmitted(reports.len(), action.machine.clone()).render(action.lang);
+            let status = if accepted > 0 {
+                Msg::FlagsSubmitted(accepted, action.machine.clone()).render(action.lang)
+            } else {
+                Msg::ActionFailed(format!("{failed} flag(s) rejected")).render(action.lang)
+            };
             Ok(ActionReport {
-                title: format!(" Flags — {} ", action.machine),
+                title: Msg::FlagsReportTitle(action.machine.clone()).render(action.lang),
                 entries,
-                changed: true,
+                changed: accepted > 0,
                 status,
             })
         }
@@ -92,13 +108,54 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                 .submit(&action.machine, &username, &url, &tipo, &language)
                 .await?;
             Ok(ActionReport {
-                title: format!(" Writeup — {} ", action.machine),
+                title: Msg::WriteupReportTitle(action.machine.clone()).render(action.lang),
                 entries: vec![(
                     ReportKind::Success,
                     Msg::WriteupSubmitted(message).render(action.lang),
                 )],
                 changed: false,
                 status: Msg::WriteupPending(action.machine.clone()).render(action.lang),
+            })
+        }
+        ActionKind::Download => {
+            let url = action.values.first().map(|(_, v)| v.clone()).unwrap_or_default();
+            let name = action
+                .values
+                .get(1)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| action.machine.clone());
+            let outcome = crate::download::download_machine(client, &name, &url).await?;
+            let (entries, status, changed) = match outcome {
+                crate::download::Download::Link(link) => {
+                    let opened = crate::open::open_url(&link);
+                    let mut entries = vec![(
+                        ReportKind::Success,
+                        Msg::DownloadLinkReady(link.clone()).render(action.lang),
+                    )];
+                    if let Err(error) = opened {
+                        entries.push((ReportKind::Info, Msg::BrowserOpenFailed(error.to_string()).render(action.lang)));
+                    }
+                    let status = Msg::DownloadLinkReady(link).render(action.lang);
+                    (entries, status, false)
+                }
+                crate::download::Download::BrowserFallback { url, reason } => {
+                    let opened = crate::open::open_url(&url);
+                    let mut entries = vec![(
+                        ReportKind::Failure,
+                        Msg::DownloadFallback(reason.clone()).render(action.lang),
+                    )];
+                    if let Err(error) = opened {
+                        entries.push((ReportKind::Info, Msg::BrowserOpenFailed(error.to_string()).render(action.lang)));
+                    }
+                    let status = Msg::DownloadFallback(reason).render(action.lang);
+                    (entries, status, false)
+                }
+            };
+            Ok(ActionReport {
+                title: format!(" {name} "),
+                entries,
+                changed,
+                status,
             })
         }
     }

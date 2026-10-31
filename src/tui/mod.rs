@@ -235,6 +235,8 @@ impl Popup {
 pub enum ActionKind {
     SubmitFlag,
     SubmitWriteup,
+    /// Solve the machine's download CAPTCHA in one session (`d`).
+    Download,
 }
 
 #[derive(Debug, Clone)]
@@ -393,7 +395,6 @@ pub struct AppState {
     pub input_mode: InputMode,
     pub filter: String,
     pub selected: usize,
-    pub scroll: usize,
     pub machine_sort: MachineSort,
     pub only_first_blood: bool,
     pub lang: Lang,
@@ -412,7 +413,6 @@ pub struct AppState {
     pub writeups_popup: Option<WriteupsPopup>,
     pub pending_refresh_after_close: bool,
     pub data: TuiData,
-    pub last_visible_rows: Option<usize>,
 }
 
 /// How long a status message stays visible in the footer.
@@ -425,7 +425,6 @@ impl AppState {
             input_mode: InputMode::Normal,
             filter: String::new(),
             selected: 0,
-            scroll: 0,
             machine_sort: MachineSort::default(),
             only_first_blood: false,
             lang: crate::config::ConfigManager::new().language(),
@@ -442,7 +441,6 @@ impl AppState {
             writeups_popup: None,
             pending_refresh_after_close: false,
             data,
-            last_visible_rows: None,
         }
     }
 
@@ -480,8 +478,9 @@ impl AppState {
 
     pub fn set_data(&mut self, data: TuiData) {
         self.data = data;
-        self.selected = 0;
-        self.scroll = 0;
+        // Keep the cursor on the same row across refreshes instead of
+        // snapping to the top after every submission.
+        self.selected = self.selected.min(self.row_count().saturating_sub(1));
     }
 
     pub fn next_tab(&mut self) {
@@ -496,7 +495,6 @@ impl AppState {
 
     fn reset_list_position(&mut self) {
         self.selected = 0;
-        self.scroll = 0;
     }
 
     /// Slugs with an own writeup already published on the site (approved).
@@ -524,7 +522,7 @@ impl AppState {
         };
         let slug = machine.slug.clone();
         let name = machine.name.clone();
-        let removing = self.completed.iter().any(|s| *s == slug);
+        let removing = self.completed.contains(&slug);
         if removing {
             self.completed.retain(|s| *s != slug);
         } else {
@@ -591,14 +589,10 @@ impl AppState {
             .map(|(_, w)| w.url.clone());
         match url {
             Some(url) => {
-                let opened = std::process::Command::new("xdg-open")
-                    .arg(&url)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn();
+                let opened = crate::open::open_url(&url);
                 self.set_status(match opened {
                     Ok(_) => self.tr(Msg::OpenedInBrowser(url)),
-                    Err(error) => self.tr(Msg::XdgOpenFailed(error.to_string())),
+                    Err(error) => self.tr(Msg::BrowserOpenFailed(error.to_string())),
                 });
             }
             None => self.set_status(self.tr(Msg::NoWriteupLink)),
@@ -637,9 +631,7 @@ impl AppState {
             machine_slug: String::new(),
             buffers: vec![username],
             field: 0,
-            notice: Some(
-                "Your username is attached to flags, writeups and the leaderboard.".to_string(),
-            ),
+            notice: Some(self.tr(Msg::UsernameNotice)),
             readonly: false,
             text: None,
             flag_types: Vec::new(),
@@ -818,7 +810,7 @@ impl AppState {
                     ),
                 ],
                 changed: false,
-                status: format!("[!] {}: no first-blood slots left.", machine.name),
+                status: self.tr(Msg::NoSlotsLeft(machine.name.clone())),
             });
             return;
         }
@@ -858,25 +850,33 @@ impl AppState {
         });
     }
 
-    /// Opens the VulnyX download page in the browser (`d`, Machines).
+    /// Queues the in-app CAPTCHA download (`d`, Machines): one session,
+    /// one solve, one POST; the host opens the resulting Proton Drive link.
     pub fn open_download_page(&mut self) {
         if self.tab != Tab::Machines {
             self.set_status(self.tr(Msg::DownloadsWrongTab));
             return;
         }
-        let Some(machine) = self.selected_machine() else {
+        if self.popup.is_some() || self.report.is_some() || self.writeups_popup.is_some() {
+            return;
+        }
+        let Some((slug, name, download_url)) = self.selected_machine().map(|machine| {
+            (
+                machine.slug.clone(),
+                machine.name.clone(),
+                machine.download_url.clone(),
+            )
+        }) else {
             self.set_status(self.tr(Msg::NothingSelected));
             return;
         };
-        let url = format!("https://vulnyx.com/download.php?vm={}", machine.name);
-        let opened = std::process::Command::new("xdg-open")
-            .arg(&url)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        self.set_status(match opened {
-            Ok(_) => self.tr(Msg::DownloadOpened(url)),
-            Err(error) => self.tr(Msg::XdgOpenFailed(error.to_string())),
+        self.set_status(self.tr(Msg::CaptchaSolving(name.clone())));
+        self.pending_action = Some(TuiAction {
+            kind: ActionKind::Download,
+            machine: slug,
+            // (0) catalog download URL, (1) display name for the report title.
+            values: vec![(0, download_url), (1, name)],
+            lang: self.lang,
         });
     }
 
@@ -901,6 +901,7 @@ impl AppState {
                     return;
                 }
                 if let Err(error) = crate::config::ConfigManager::new().save_username(&username) {
+                    self.popup = Some(popup);
                     self.set_status(self.tr(Msg::SaveFailed(format!("{error:#}"))));
                     return;
                 }
@@ -975,33 +976,14 @@ impl AppState {
     pub fn move_down(&mut self) {
         let last = self.row_count().saturating_sub(1);
         self.selected = (self.selected + 1).min(last);
-        self.ensure_selected_visible();
     }
 
     pub fn move_up(&mut self) {
         self.selected = self.selected.saturating_sub(1);
-        self.ensure_selected_visible();
     }
 
     pub fn move_start(&mut self) {
         self.selected = 0;
-        self.scroll = 0;
-    }
-
-    /// Keeps `selected` inside the `[scroll, scroll + visible)` window.
-    pub fn ensure_selected_visible(&mut self) {
-        let visible = self.last_visible_rows.unwrap_or(10).max(1);
-        if self.selected < self.scroll {
-            self.scroll = self.selected;
-        } else if self.selected >= self.scroll + visible {
-            self.scroll = self.selected + 1 - visible;
-        }
-    }
-
-    /// Row budget reported by the renderer after layout.
-    pub fn set_visible_rows(&mut self, rows: usize) {
-        self.last_visible_rows = Some(rows.max(1));
-        self.ensure_selected_visible();
     }
 
     pub fn enter_filter_mode(&mut self) {
@@ -1074,24 +1056,34 @@ fn event_loop(
 
         app.tick();
 
-        // User actions from popups (submit flag, submit writeup).
+        // User actions from popups (submit flag, submit writeup, download).
         if let Some(action) = app.pending_action.take() {
             let label = match action.kind {
-                ActionKind::SubmitFlag => {
-                    format!("Submitting flag for {}...", action.machine)
-                }
+                ActionKind::SubmitFlag => app.tr(Msg::SubmittingFlag(action.machine.clone())),
                 ActionKind::SubmitWriteup => {
-                    format!("Submitting writeup for {}...", action.machine)
+                    app.tr(Msg::SubmittingWriteup(action.machine.clone()))
                 }
+                ActionKind::Download => app.tr(Msg::CaptchaSolving(action.machine.clone())),
             };
             app.fetching = Some(label);
+            // Paint the label before the blocking call, or the UI freezes on
+            // the pre-input frame for the whole request.
+            terminal.draw(|frame| crate::tui::render::draw(frame, app))?;
             match (host.run_action)(action) {
                 Ok(report) => {
                     app.set_status(report.status.clone());
                     app.pending_refresh_after_close = report.changed;
                     app.report = Some(report);
                 }
-                Err(error) => app.set_status(app.tr(Msg::ActionFailed(format!("{error:#}")))),
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    let status = if message.contains(crate::modules::session::RATE_LIMIT) {
+                        app.tr(Msg::DownloadRateLimited)
+                    } else {
+                        app.tr(Msg::ActionFailed(message))
+                    };
+                    app.set_status(status);
+                }
             }
             app.fetching = None;
         }
@@ -1135,14 +1127,10 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 // The popup always carries the machine's writeups, regardless
                 // of the tab underneath.
                 if let Some(url) = app.writeups_popup.as_ref().and_then(|p| p.selected_url()) {
-                    let opened = std::process::Command::new("xdg-open")
-                        .arg(url)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .spawn();
+                    let opened = crate::open::open_url(url);
                     app.set_status(match opened {
                         Ok(_) => app.tr(Msg::OpenedInBrowser(url.to_string())),
-                        Err(error) => app.tr(Msg::XdgOpenFailed(error.to_string())),
+                        Err(error) => app.tr(Msg::BrowserOpenFailed(error.to_string())),
                     });
                 }
             }
@@ -1164,9 +1152,10 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
     // Result report popup captures everything until dismissed.
     if app.report.is_some() {
         match key.code {
-            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
-                let _ = app.close_report();
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') if app.close_report() => {
+                app.request_refresh();
             }
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {}
             _ => {}
         }
         return;
