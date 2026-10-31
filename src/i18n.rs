@@ -155,6 +155,35 @@ pub enum Msg {
     ProgressStats(u64, u64, usize, String, u64),
     YourWriteups(usize),
     WriteupsTitle(String),
+    DownloadStarted(String),
+    DownloadDone(String),
+    DownloadFailed(String),
+    DownloadProgress(String, String, u64, u64, u64),
+    DownloadAlreadyPresent(String),
+    DownloadDirSet(String),
+    MarkDoneConfirm(String),
+    UnmarkDoneConfirm(String),
+    HelpTitle,
+    HelpText,
+    DownloadDirTitle,
+    PromptDownloadDir,
+    HintHelpScroll,
+}
+
+/// Human-readable byte size: "0 B", "842.1 KB", "1.9 GB", ...
+pub fn fmt_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
 }
 
 impl Msg {
@@ -327,8 +356,8 @@ impl Msg {
             }
             .to_string(),
             Msg::FooterMachines => match lang {
-                Lang::En => "jk move · / filter · s sort · d download · f flag · w writeups · u submit · b blood · m done · x hide · i info",
-                Lang::Es => "jk mover · / filtro · s orden · d descargar · f flag · w writeups · u enviar · b sangre · m hecha · x ocultar · i info",
+                Lang::En => "jk move · / filter · d download · f flag · m done · i info · h help",
+                Lang::Es => "jk mover · / filtro · d descargar · f flag · m hecha · i info · h ayuda",
             }
             .to_string(),
             Msg::FooterProgress => match lang {
@@ -337,8 +366,8 @@ impl Msg {
             }
             .to_string(),
             Msg::FooterGlobal => match lang {
-                Lang::En => "Tab tabs · a username · l language · r refresh · q quit",
-                Lang::Es => "Tab pestañas · a usuario · l idioma · r refrescar · q salir",
+                Lang::En => "Tab tabs · a username · l language · r refresh · D folder · q quit",
+                Lang::Es => "Tab pestañas · a usuario · l idioma · r refrescar · D carpeta · q salir",
             }
             .to_string(),
             Msg::FooterFilter => match lang {
@@ -626,9 +655,154 @@ impl Msg {
                 Lang::Es => format!(" Tus writeups ({count}) "),
             },
             Msg::WriteupsTitle(machine) => format!(" Writeups — {machine} "),
+            Msg::DownloadStarted(name) => match lang {
+                Lang::En => format!("Downloading {name} from Proton Drive…"),
+                Lang::Es => format!("Descargando {name} desde Proton Drive…"),
+            },
+            Msg::DownloadDone(name) => match lang {
+                Lang::En => format!("[✓] {name} downloaded."),
+                Lang::Es => format!("[✓] {name} descargada."),
+            },
+            Msg::DownloadFailed(error) => match lang {
+                Lang::En => format!("[!] Proton Drive download failed: {error}"),
+                Lang::Es => format!("[!] Falló la descarga desde Proton Drive: {error}"),
+            },
+            Msg::DownloadProgress(machine, file, done, total, speed) => {
+                if total == 0 {
+                    format!("↓ {machine} · {file} · {}", fmt_bytes(done))
+                } else {
+                    format!(
+                        "↓ {machine} · {file} · {}/{} · {}/s",
+                        fmt_bytes(done),
+                        fmt_bytes(total),
+                        fmt_bytes(speed)
+                    )
+                }
+            }
+            Msg::DownloadAlreadyPresent(name) => match lang {
+                Lang::En => format!("[✓] {name} is already downloaded."),
+                Lang::Es => format!("[✓] {name} ya está descargada."),
+            },
+            Msg::DownloadDirSet(path) => match lang {
+                Lang::En => format!("[✓] Downloads go to {path}"),
+                Lang::Es => format!("[✓] Las descargas van a {path}"),
+            },
+            Msg::MarkDoneConfirm(name) => match lang {
+                Lang::En => format!(
+                    "Mark {name} as completed?\n\nThis only affects your local list."
+                ),
+                Lang::Es => format!(
+                    "¿Marcar {name} como completada?\n\nSolo afecta a tu lista local."
+                ),
+            },
+            Msg::UnmarkDoneConfirm(name) => match lang {
+                Lang::En => {
+                    format!("{name} is already marked as completed.\n\nRemove the mark?")
+                }
+                Lang::Es => {
+                    format!("{name} ya está marcada como completada.\n\n¿Quitar la marca?")
+                }
+            },
+            Msg::HelpTitle => match lang {
+                Lang::En => " Keyboard shortcuts ",
+                Lang::Es => " Atajos de teclado ",
+            }
+            .to_string(),
+            Msg::HelpText => match lang {
+                Lang::En => HELP_TEXT_EN,
+                Lang::Es => HELP_TEXT_ES,
+            }
+            .to_string(),
+            Msg::DownloadDirTitle => match lang {
+                Lang::En => " Download folder ",
+                Lang::Es => " Carpeta de descargas ",
+            }
+            .to_string(),
+            Msg::PromptDownloadDir => match lang {
+                Lang::En => "Folder:",
+                Lang::Es => "Carpeta:",
+            }
+            .to_string(),
+            Msg::HintHelpScroll => match lang {
+                Lang::En => "jk scroll · Esc close",
+                Lang::Es => "jk desplazar · Esc cerrar",
+            }
+            .to_string(),
         }
     }
 }
+
+const HELP_TEXT_EN: &str = "[ Navigation ]
+  Tab / →        next tab
+  ← / Shift-Tab  previous tab
+  j / ↓          move down
+  k / ↑          move up
+  g / Home       jump to the first row
+  /              filter (Enter confirm · Esc clears and exits)
+
+[ Machines ]
+  d              solve the CAPTCHA and download the archive
+  D              set the download folder (absolute path)
+  f              submit first-blood flags
+  w              community writeups
+  u              submit a writeup
+  b              show only machines with an open slot
+  m              mark/unmark completed (asks for confirmation)
+  x              hide completed machines
+  i / Enter      machine details
+  s              cycle the sort order
+
+[ Progress ]
+  Enter          open the selected writeup in the browser
+
+[ Anywhere ]
+  a              username
+  l              switch language (EN/ES)
+  r              refresh data
+  h              this help
+  q / Ctrl-C     quit
+
+[ Popups ]
+  Tab / ↓ / ↑    next / previous field
+  Space          open a picker (type, language)
+  Enter          confirm
+  Esc            cancel";
+
+const HELP_TEXT_ES: &str = "[ Navegación ]
+  Tab / →        siguiente pestaña
+  ← / Shift-Tab  pestaña anterior
+  j / ↓          bajar
+  k / ↑          subir
+  g / Home       ir a la primera fila
+  /              filtro (Enter confirma · Esc limpia y sale)
+
+[ Máquinas ]
+  d              resolver el CAPTCHA y descargar el archivo
+  D              carpeta de descargas (ruta absoluta)
+  f              enviar flags first-blood
+  w              writeups de la comunidad
+  u              enviar un writeup
+  b              solo máquinas con un hueco libre
+  m              marcar/desmarcar completada (pide confirmación)
+  x              ocultar máquinas completadas
+  i / Enter      detalles de la máquina
+  s              cambiar el orden
+
+[ Progreso ]
+  Enter          abrir el writeup seleccionado en el navegador
+
+[ En cualquier lugar ]
+  a              usuario
+  l              cambiar idioma (EN/ES)
+  r              refrescar datos
+  h              esta ayuda
+  q / Ctrl-C     salir
+
+[ Popups ]
+  Tab / ↓ / ↑    siguiente / anterior campo
+  Space          abrir un selector (tipo, idioma)
+  Enter          confirmar
+  Esc            cancelar";
 
 #[cfg(test)]
 mod tests {
@@ -662,6 +836,57 @@ mod tests {
         assert_eq!(
             Msg::LanguageSet(Lang::En).render(Lang::Es),
             "Idioma: English"
+        );
+    }
+
+    #[test]
+    fn help_text_covers_every_documented_key() {
+        for key in ["Tab", "j", "k", "g", "d", "D", "f", "w", "u", "b", "m", "x", "i", "s", "h", "r", "a", "l", "q"] {
+            for lang in [Lang::En, Lang::Es] {
+                let text = Msg::HelpText.render(lang);
+                assert!(text.contains(key), "{key} missing from {lang:?} help");
+            }
+        }
+    }
+
+    #[test]
+    fn footer_fits_a_ninety_column_terminal() {
+        for lang in [Lang::En, Lang::Es] {
+            for msg in [Msg::FooterMachines, Msg::FooterGlobal] {
+                let line = msg.render(lang);
+                assert!(line.chars().count() <= 90, "{line} is {} chars", line.chars().count());
+            }
+        }
+    }
+
+    #[test]
+    fn done_confirmation_wording_differs_per_direction() {
+        let marking = Msg::MarkDoneConfirm("APex".into()).render(Lang::En);
+        let unmarking = Msg::UnmarkDoneConfirm("APex".into()).render(Lang::En);
+        assert!(marking.contains("Mark APex as completed"));
+        assert!(unmarking.contains("already marked"));
+        assert_ne!(marking, unmarking);
+    }
+
+    #[test]
+    fn fmt_bytes_picks_units() {
+        assert_eq!(fmt_bytes(0), "0 B");
+        assert_eq!(fmt_bytes(512), "512 B");
+        assert_eq!(fmt_bytes(1024), "1.0 KB");
+        assert_eq!(fmt_bytes(1_966_080), "1.9 MB");
+        assert_eq!(fmt_bytes(2_147_483_648), "2.0 GB");
+    }
+
+    #[test]
+    fn download_progress_omits_total_when_unknown() {
+        assert_eq!(
+            Msg::DownloadProgress("APex".into(), "APex.ova".into(), 2048, 0, 0).render(Lang::En),
+            "↓ APex · APex.ova · 2.0 KB"
+        );
+        assert_eq!(
+            Msg::DownloadProgress("APex".into(), "APex.ova".into(), 1024, 4096, 512)
+                .render(Lang::En),
+            "↓ APex · APex.ova · 1.0 KB/4.0 KB · 512 B/s"
         );
     }
 }

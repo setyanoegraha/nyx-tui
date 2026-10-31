@@ -87,6 +87,20 @@ pub async fn download_machine(
     }
 }
 
+/// Strips path separators and control characters from a server-supplied file
+/// name so a Proton Drive response cannot escape the download directory.
+pub fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|character| *character != '/' && *character != '\\' && !character.is_control())
+        .collect();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        "machine.ova".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// First absolute Proton Drive link in the page, if any.
 fn find_proton_link(page: &str) -> Option<String> {
     let start = page.find("https://drive.proton.me/")?;
@@ -97,3 +111,18 @@ fn find_proton_link(page: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_filename_blocks_traversal() {
+        assert_eq!(sanitize_filename("APex.ova"), "APex.ova");
+        assert_eq!(sanitize_filename("../../etc/passwd"), "....etcpasswd");
+        assert_eq!(sanitize_filename("a/b\\c"), "abc");
+        assert_eq!(sanitize_filename(""), "machine.ova");
+        assert_eq!(sanitize_filename(".."), "machine.ova");
+        assert_eq!(sanitize_filename("bad\u{0}name.ova"), "badname.ova");
+    }
+}

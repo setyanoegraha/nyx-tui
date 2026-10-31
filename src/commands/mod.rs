@@ -97,6 +97,7 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                 entries,
                 changed: accepted > 0,
                 status,
+                download: None,
             })
         }
         ActionKind::SubmitWriteup => {
@@ -115,6 +116,7 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                 )],
                 changed: false,
                 status: Msg::WriteupPending(action.machine.clone()).render(action.lang),
+                download: None,
             })
         }
         ActionKind::Download => {
@@ -125,18 +127,47 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                 .map(|(_, v)| v.clone())
                 .unwrap_or_else(|| action.machine.clone());
             let outcome = crate::download::download_machine(client, &name, &url).await?;
-            let (entries, status, changed) = match outcome {
+            let mut download = None;
+            let (mut entries, status) = match outcome {
                 crate::download::Download::Link(link) => {
-                    let opened = crate::open::open_url(&link);
                     let mut entries = vec![(
                         ReportKind::Success,
                         Msg::DownloadLinkReady(link.clone()).render(action.lang),
                     )];
-                    if let Err(error) = opened {
-                        entries.push((ReportKind::Info, Msg::BrowserOpenFailed(error.to_string()).render(action.lang)));
+                    // The link is resolved; hand the archive transfer to the
+                    // event loop and let the footer report its progress.
+                    match crate::proton::start(
+                        name.clone(),
+                        link.clone(),
+                        ConfigManager::new().download_dir(),
+                    )
+                    .await
+                    {
+                        Ok(job) => {
+                            let progress = job.progress();
+                            // Nothing is transferred when the archive is
+                            // already complete, so do not claim a download.
+                            let message = if progress.already_present {
+                                Msg::DownloadAlreadyPresent(progress.file).render(action.lang)
+                            } else {
+                                Msg::DownloadStarted(progress.file).render(action.lang)
+                            };
+                            entries.push((ReportKind::Info, message));
+                            download = Some(job);
+                            (entries, Msg::DownloadLinkReady(link).render(action.lang))
+                        }
+                        Err(error) => {
+                            // Keep the browser route usable when the transfer
+                            // cannot even be prepared.
+                            let _ = crate::open::open_url(&link);
+                            entries.push((
+                                ReportKind::Failure,
+                                Msg::DownloadFailed(format!("{error:#}")).render(action.lang),
+                            ));
+                            let status = Msg::DownloadFailed(format!("{error:#}")).render(action.lang);
+                            (entries, status)
+                        }
                     }
-                    let status = Msg::DownloadLinkReady(link).render(action.lang);
-                    (entries, status, false)
                 }
                 crate::download::Download::BrowserFallback { url, reason } => {
                     let opened = crate::open::open_url(&url);
@@ -145,17 +176,25 @@ async fn run_tui_action(client: &NyxClient, action: TuiAction) -> Result<ActionR
                         Msg::DownloadFallback(reason.clone()).render(action.lang),
                     )];
                     if let Err(error) = opened {
-                        entries.push((ReportKind::Info, Msg::BrowserOpenFailed(error.to_string()).render(action.lang)));
+                        entries.push((
+                            ReportKind::Info,
+                            Msg::BrowserOpenFailed(error.to_string()).render(action.lang),
+                        ));
                     }
                     let status = Msg::DownloadFallback(reason).render(action.lang);
-                    (entries, status, false)
+                    (entries, status)
                 }
             };
+            // The link line is noise once the transfer owns the download.
+            if download.is_some() {
+                entries.retain(|(kind, _)| *kind != ReportKind::Success);
+            }
             Ok(ActionReport {
                 title: format!(" {name} "),
                 entries,
-                changed,
+                changed: false,
                 status,
+                download,
             })
         }
     }
