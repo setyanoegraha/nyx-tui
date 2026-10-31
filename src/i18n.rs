@@ -103,7 +103,7 @@ pub enum Msg {
     CompletedShown,
     LanguageSet(Lang),
     OpenedInBrowser(String),
-    XdgOpenFailed(String),
+    BrowserOpenFailed(String),
     NoWriteupLink,
     WriteupsWrongTab,
     NoCommunityWriteups(String),
@@ -111,7 +111,6 @@ pub enum Msg {
     SetUsernameFirst,
     FlagsWrongTab,
     DownloadsWrongTab,
-    DownloadOpened(String),
     UsernameTooShort,
     SaveFailed(String),
     UsernameSet(String),
@@ -138,6 +137,24 @@ pub enum Msg {
     FlagsSubmitted(usize, String),
     WriteupSubmitted(String),
     WriteupPending(String),
+    CaptchaSolving(String),
+    DownloadLinkReady(String),
+    DownloadFallback(String),
+    DownloadRateLimited,
+    FlagsReportTitle(String),
+    WriteupReportTitle(String),
+    UsernameNotice,
+    NoSlotsLeft(String),
+    SubmittingFlag(String),
+    SubmittingWriteup(String),
+    ProgressIdentity,
+    ProgressSelfDeclared,
+    ProgressFirstBloods,
+    ProgressNoBlood,
+    ProgressStatistics,
+    ProgressStats(u64, u64, usize, String, u64),
+    YourWriteups(usize),
+    WriteupsTitle(String),
 }
 
 impl Msg {
@@ -380,9 +397,9 @@ impl Msg {
                 Lang::En => format!("Opened in browser: {url}"),
                 Lang::Es => format!("Abierto en el navegador: {url}"),
             },
-            Msg::XdgOpenFailed(error) => match lang {
-                Lang::En => format!("xdg-open failed: {error}"),
-                Lang::Es => format!("xdg-open falló: {error}"),
+            Msg::BrowserOpenFailed(error) => match lang {
+                Lang::En => format!("Could not open the browser: {error}"),
+                Lang::Es => format!("No se pudo abrir el navegador: {error}"),
             },
             Msg::NoWriteupLink => match lang {
                 Lang::En => "No writeup link on this row.",
@@ -418,10 +435,6 @@ impl Msg {
                 Lang::Es => "Las descargas están solo en la pestaña Machines.",
             }
             .to_string(),
-            Msg::DownloadOpened(url) => match lang {
-                Lang::En => format!("[↓] Download page opened: {url}"),
-                Lang::Es => format!("[↓] Página de descarga abierta: {url}"),
-            },
             Msg::UsernameTooShort => match lang {
                 Lang::En => "The username needs at least 2 characters.",
                 Lang::Es => "El usuario necesita al menos 2 caracteres.",
@@ -537,6 +550,82 @@ impl Msg {
                     "[✓] Writeup enviado para {machine} — pendiente de revisión (48h)."
                 ),
             },
+            Msg::CaptchaSolving(machine) => match lang {
+                Lang::En => format!("Reading the CAPTCHA for {machine}…"),
+                Lang::Es => format!("Leyendo el CAPTCHA de {machine}…"),
+            },
+            Msg::DownloadLinkReady(url) => match lang {
+                Lang::En => format!("[↓] Proton Drive link opened: {url}"),
+                Lang::Es => format!("[↓] Enlace de Proton Drive abierto: {url}"),
+            },
+            Msg::DownloadFallback(reason) => match lang {
+                Lang::En => format!("[!] {reason} — download page opened in the browser."),
+                Lang::Es => {
+                    format!("[!] {reason} — página de descarga abierta en el navegador.")
+                }
+            },
+            Msg::DownloadRateLimited => match lang {
+                Lang::En => {
+                    "[!] VulnyX allows 2 VM downloads per minute.".to_string()
+                }
+                Lang::Es => "[!] VulnyX permite 2 descargas por minuto.".to_string(),
+            },
+            Msg::FlagsReportTitle(machine) => format!(" Flags — {machine} "),
+            Msg::WriteupReportTitle(machine) => format!(" Writeup — {machine} "),
+            Msg::UsernameNotice => match lang {
+                Lang::En => {
+                    "Your username is attached to flags, writeups and the leaderboard.".to_string()
+                }
+                Lang::Es => {
+                    "Tu usuario se adjunta a flags, writeups y la clasificación.".to_string()
+                }
+            },
+            Msg::NoSlotsLeft(machine) => match lang {
+                Lang::En => format!("[!] {machine}: no first-blood slots left."),
+                Lang::Es => format!("[!] {machine}: no quedan slots de first blood."),
+            },
+            Msg::SubmittingFlag(machine) => match lang {
+                Lang::En => format!("Submitting flag for {machine}…"),
+                Lang::Es => format!("Enviando flag de {machine}…"),
+            },
+            Msg::SubmittingWriteup(machine) => match lang {
+                Lang::En => format!("Submitting writeup for {machine}…"),
+                Lang::Es => format!("Enviando writeup de {machine}…"),
+            },
+            Msg::ProgressIdentity => match lang {
+                Lang::En => "[ Identity ]",
+                Lang::Es => "[ Identidad ]",
+            }
+            .to_string(),
+            Msg::ProgressSelfDeclared => match lang {
+                Lang::En => "(self-declared — attached to flags & writeups)",
+                Lang::Es => "(autodeclarado — se adjunta a flags y writeups)",
+            }
+            .to_string(),
+            Msg::ProgressFirstBloods => "[ First Bloods ]".to_string(),
+            Msg::ProgressNoBlood => match lang {
+                Lang::En => "None yet — first to submit a flag gets the blood.",
+                Lang::Es => "Ninguna aún — el primero en enviar un flag se lleva la sangre.",
+            }
+            .to_string(),
+            Msg::ProgressStatistics => match lang {
+                Lang::En => "[ Statistics ]",
+                Lang::Es => "[ Estadísticas ]",
+            }
+            .to_string(),
+            Msg::ProgressStats(user, root, writeups, position, points) => match lang {
+                Lang::En => format!(
+                    "First blood  : user {user} · root {root}\nWriteups     : {writeups}\nLeaderboard  : #{position} ({points} pts)"
+                ),
+                Lang::Es => format!(
+                    "First blood  : usuario {user} · root {root}\nWriteups     : {writeups}\nLeaderboard  : #{position} ({points} pts)"
+                ),
+            },
+            Msg::YourWriteups(count) => match lang {
+                Lang::En => format!(" Your writeups ({count}) "),
+                Lang::Es => format!(" Tus writeups ({count}) "),
+            },
+            Msg::WriteupsTitle(machine) => format!(" Writeups — {machine} "),
         }
     }
 }

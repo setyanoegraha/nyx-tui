@@ -1,7 +1,10 @@
+mod captcha;
 mod commands;
 mod config;
+mod download;
 mod i18n;
 mod modules;
+mod open;
 mod tui;
 
 #[tokio::main]
