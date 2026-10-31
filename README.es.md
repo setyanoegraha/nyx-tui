@@ -10,7 +10,7 @@
 
 ---
 
-**nyx-tui** es un dashboard interactivo de terminal para [VulNyx](https://vulnyx.com): explora el catálogo de máquinas, envía flags first-blood, lee y publica writeups de la comunidad y sigue tu posición en el leaderboard — todo sin salir de la terminal. La descarga de máquinas abre la página de descarga de VulnyX en tu navegador, donde completas el CAPTCHA y descargas la máquina tú mismo.
+**nyx-tui** es un dashboard interactivo de terminal para [VulNyx](https://vulnyx.com): explora el catálogo de máquinas, envía flags first-blood, lee y publica writeups de la comunidad y sigue tu posición en el leaderboard — todo sin salir de la terminal. La descarga de máquinas resuelve el CAPTCHA de VulnyX dentro de la terminal y te entrega el enlace de Proton Drive.
 
 Un comando, una pantalla: al ejecutar `nyx` se abre el dashboard. Escrito en **Rust** puro (ratatui), distribuido como un único binario estático. Interfaz en inglés, tema Nord. **No se necesita cuenta** — solo un nombre de usuario.
 
@@ -105,7 +105,7 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 | `b` | **Machines** — mostrar solo máquinas con hueco de first-blood libre |
 | `m` | **Machines** — marcar/desmarcar la máquina seleccionada como completada (se guarda localmente) |
 | `x` | **Machines** — ocultar/mostrar las máquinas completadas |
-| `d` | **Machines** — abrir la página de descarga de la máquina en tu navegador (CAPTCHA + descarga ocurren ahí) |
+| `d` | **Machines** — resolver el CAPTCHA de descarga y abrir el enlace de Proton Drive de la máquina |
 | `f` | **Machines** — ventana de flags first-blood: enviar flags User y/o Root (MD5). Los huecos ocupados se muestran como avisos de solo lectura |
 | `w` | **Machines** — ventana de writeups de la comunidad de la máquina seleccionada: `j`/`k` para elegir, `Enter` abre el enlace |
 | `u` | **Machines** — enviar una URL de writeup para la máquina seleccionada (pendiente de revisión de un admin) |
@@ -118,12 +118,15 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 
 ### Descargas
 
-VulnyX protege la descarga de máquinas con una imagen CAPTCHA (5 caracteres, A-Z 0-9) en el navegador. nyx-tui deja el flujo donde ya funciona bien:
+VulnyX protege la descarga de máquinas con una imagen CAPTCHA de 5 caracteres. nyx-tui lee la imagen por sí mismo:
 
-1. Pulsa `d` sobre una máquina — su página de descarga (`https://vulnyx.com/download.php?vm=<nombre>`) se abre en tu navegador.
-2. Completa el CAPTCHA y descarga el `.ova` ahí.
+1. Pulsa `d` sobre una máquina — nyx pide la página de descarga y el CAPTCHA en una sola sesión, decodifica
+   la imagen con la fuente fija de 30 caracteres del sitio (`A-Z` sin `I O S`, dígitos sin `0 1 5`) y envía el código.
+2. Si acierta, abre el enlace de Proton Drive en tu navegador, donde se descarga el `.ova`.
+3. Si no puede leer la imagen (el sitio cambió la fuente), abre la página de descarga para que escribas el código a mano.
 
-nyx-tui no se mete en camino: sin descarga integrada, sin visor de imágenes, sin escribir códigos a mano.
+La plataforma permite **2 descargas por minuto**; nyx hace un único intento por pulsación de `d` e informa
+del límite en vez de reintentar. nyx no descarga nada por sí mismo.
 
 ### Dónde viven tus datos
 - `~/.nyx-tui/config.json` — tu **nombre de usuario** y las máquinas marcadas como completadas localmente. Nada más.
@@ -151,7 +154,7 @@ Borra `~/.nyx-tui/` para eliminar todos los datos locales.
 
 ## Aviso
 
-nyx-tui es una herramienta comunitaria **no oficial** y no está afiliada a VulNyx. Solo usa los datos JSON públicos de la plataforma y abre en tu navegador las mismas páginas de descarga que usa la aplicación web — sé amable con el servicio.
+nyx-tui es una herramienta comunitaria **no oficial** y no está afiliada a VulNyx. Solo usa los datos JSON públicos de la plataforma y completa el mismo CAPTCHA que la aplicación web, una descarga a la vez — sé amable con el servicio.
 
 ---
 

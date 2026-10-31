@@ -10,7 +10,7 @@
 
 ---
 
-**nyx-tui** is an interactive terminal dashboard for [VulNyx](https://vulnyx.com): browse the machine catalog, submit first-blood flags, read and submit community writeups, and track your leaderboard position — all without leaving the terminal. Machine downloads open the VulnyX download page in your browser, where you complete the CAPTCHA and download the machine yourself.
+**nyx-tui** is an interactive terminal dashboard for [VulNyx](https://vulnyx.com): browse the machine catalog, submit first-blood flags, read and submit community writeups, and track your leaderboard position — all without leaving the terminal. Machine downloads solve the VulnyX CAPTCHA inside the terminal and hand you the Proton Drive link.
 
 One command, one screen: running `nyx` opens the dashboard. Written in pure **Rust** (ratatui), shipped as a single static binary. UI in English, Nord theme. **No account needed** — just a username.
 
@@ -105,7 +105,7 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 | `b` | **Machines** — show only machines with an open first-blood slot |
 | `m` | **Machines** — mark/unmark the selected machine as completed (stored locally) |
 | `x` | **Machines** — hide/show completed machines |
-| `d` | **Machines** — open the machine's download page in your browser (CAPTCHA + download happen there) |
+| `d` | **Machines** — solve the download CAPTCHA and open the machine's Proton Drive link |
 | `f` | **Machines** — first-blood flag popup: submit User and/or Root flags (MD5). Slots already taken are shown as read-only notices |
 | `w` | **Machines** — community writeups popup for the selected machine: `j`/`k` select, `Enter` opens the link |
 | `u` | **Machines** — submit a writeup URL for the selected machine (pending admin review) |
@@ -118,12 +118,17 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 
 ### Downloads
 
-VulnyX gates machine downloads behind a CAPTCHA image (5 characters, A-Z 0-9) in the browser. nyx-tui keeps the flow where it already works well:
+VulnyX gates machine downloads behind a 5-character CAPTCHA image. nyx-tui reads the image itself:
 
-1. Press `d` on a machine — its download page (`https://vulnyx.com/download.php?vm=<name>`) opens in your browser.
-2. Complete the CAPTCHA and download the `.ova` there.
+1. Press `d` on a machine — nyx fetches the download page and the CAPTCHA in one session, decodes the
+   image against the site's fixed 30-character font (`A-Z` minus `I O S`, digits minus `0 1 5`), and
+   submits the code.
+2. On success it opens the resulting Proton Drive link in your browser, where the `.ova` downloads.
+3. If the image cannot be read (the site changed its font), nyx opens the download page instead so you
+   can type the code manually.
 
-nyx-tui stays out of the way: no in-app download, no image viewer, no manual code entry.
+The platform allows **2 VM downloads per minute**; nyx makes exactly one attempt per `d` press and
+reports the limit instead of retrying. Nothing is downloaded by nyx itself.
 
 ### Where Your Data Lives
 - `~/.nyx-tui/config.json` — your **username** and locally marked completed machines. Nothing else.
@@ -151,7 +156,7 @@ Delete `~/.nyx-tui/` to clear all local data.
 
 ## Disclaimer
 
-nyx-tui is an **unofficial** community tool and is not affiliated with VulNyx. It only uses the platform's public JSON data and opens the same download pages the web app uses in your browser — be kind to the service.
+nyx-tui is an **unofficial** community tool and is not affiliated with VulNyx. It only uses the platform's public JSON data and completes the same CAPTCHA gate the web app uses, one download at a time — be kind to the service.
 
 ---
 
