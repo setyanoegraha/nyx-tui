@@ -103,9 +103,11 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 | `/` | Filtrar la lista actual (escribe para acotar, `Enter` confirma, `Esc` limpia y sale) |
 | `s` | **Machines** — ciclar orden: orden del sitio → nombre → fecha → dificultad |
 | `b` | **Machines** — mostrar solo máquinas con hueco de first-blood libre |
-| `m` | **Machines** — marcar/desmarcar la máquina seleccionada como completada (se guarda localmente) |
+| `m` | **Machines** — marcar/desmarcar la máquina como completada (se guarda localmente); pide confirmación, con un texto distinto si ya llevaba la marca |
+| `D` | **En cualquier lugar** — carpeta de descargas; la ruta debe ser absoluta (`~` se expande) |
+| `h` | **En cualquier lugar** — panel completo de atajos, desplazable con `j`/`k` |
 | `x` | **Machines** — ocultar/mostrar las máquinas completadas |
-| `d` | **Machines** — resolver el CAPTCHA de descarga y abrir el enlace de Proton Drive de la máquina |
+| `d` | **Machines** — resolver el CAPTCHA de descarga y descargar el archivo desde Proton Drive |
 | `f` | **Machines** — ventana de flags first-blood: enviar flags User y/o Root (MD5). Los huecos ocupados se muestran como avisos de solo lectura |
 | `w` | **Machines** — ventana de writeups de la comunidad de la máquina seleccionada: `j`/`k` para elegir, `Enter` abre el enlace |
 | `u` | **Machines** — enviar una URL de writeup para la máquina seleccionada (pendiente de revisión de un admin) |
@@ -122,11 +124,17 @@ VulnyX protege la descarga de máquinas con una imagen CAPTCHA de 5 caracteres. 
 
 1. Pulsa `d` sobre una máquina — nyx pide la página de descarga y el CAPTCHA en una sola sesión, decodifica
    la imagen con la fuente fija de 30 caracteres del sitio (`A-Z` sin `I O S`, dígitos sin `0 1 5`) y envía el código.
-2. Si acierta, abre el enlace de Proton Drive en tu navegador, donde se descarga el `.ova`.
-3. Si no puede leer la imagen (el sitio cambió la fuente), abre la página de descarga para que escribas el código a mano.
+2. Si acierta, resuelve el enlace de Proton Drive y descarga el archivo en tu directorio de descargas,
+   mostrando el progreso en el pie (`↓ APex · APex.zip · 188.0 MB/1.2 GB · 3.6 MB/s`). El directorio
+   por defecto es `~/Downloads/nyx`; cámbialo con `D` (solo rutas absolutas) o editando `"download_dir"` en
+   `~/.nyx-tui/config.json`.
+   Un archivo que ya está en disco con el tamaño correcto no se vuelve a descargar.
+3. Si no puede leer la imagen (el sitio cambió la fuente) o Proton rechaza la transferencia, abre el
+   enlace en tu navegador para que continúes a mano.
 
 La plataforma permite **2 descargas por minuto**; nyx hace un único intento por pulsación de `d` e informa
-del límite en vez de reintentar. nyx no descarga nada por sí mismo.
+del límite en vez de reintentar. Las transferencias parciales usan un archivo `.part` que se descarta al
+fallar o al salir, así que no hay reanudación.
 
 ### Dónde viven tus datos
 - `~/.nyx-tui/config.json` — tu **nombre de usuario** y las máquinas marcadas como completadas localmente. Nada más.

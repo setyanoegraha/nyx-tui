@@ -103,9 +103,11 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 | `/` | Filter the current list (type to narrow, `Enter` keeps it, `Esc` clears & exits) |
 | `s` | **Machines** — cycle sort: site order → name → date → difficulty |
 | `b` | **Machines** — show only machines with an open first-blood slot |
-| `m` | **Machines** — mark/unmark the selected machine as completed (stored locally) |
+| `m` | **Machines** — mark/unmark the selected machine as completed (stored locally); asks for confirmation, with different wording when the machine carries the mark already |
+| `D` | **Anywhere** — download folder popup; the path must be absolute (`~` is expanded) |
+| `h` | **Anywhere** — full keyboard-shortcut panel, scrollable with `j`/`k` |
 | `x` | **Machines** — hide/show completed machines |
-| `d` | **Machines** — solve the download CAPTCHA and open the machine's Proton Drive link |
+| `d` | **Machines** — solve the download CAPTCHA and download the archive from Proton Drive |
 | `f` | **Machines** — first-blood flag popup: submit User and/or Root flags (MD5). Slots already taken are shown as read-only notices |
 | `w` | **Machines** — community writeups popup for the selected machine: `j`/`k` select, `Enter` opens the link |
 | `u` | **Machines** — submit a writeup URL for the selected machine (pending admin review) |
@@ -123,12 +125,16 @@ VulnyX gates machine downloads behind a 5-character CAPTCHA image. nyx-tui reads
 1. Press `d` on a machine — nyx fetches the download page and the CAPTCHA in one session, decodes the
    image against the site's fixed 30-character font (`A-Z` minus `I O S`, digits minus `0 1 5`), and
    submits the code.
-2. On success it opens the resulting Proton Drive link in your browser, where the `.ova` downloads.
-3. If the image cannot be read (the site changed its font), nyx opens the download page instead so you
-   can type the code manually.
+2. On success it resolves the Proton Drive link itself and downloads the archive to your download
+   directory, streaming progress into the footer (`↓ APex · APex.zip · 188.0 MB/1.2 GB · 3.6 MB/s`).
+   The directory defaults to `~/Downloads/nyx`; change it with `D` (absolute paths only) or by editing
+   `"download_dir"` in `~/.nyx-tui/config.json`. An archive already on disk with the right size is not fetched again.
+3. If the image cannot be read (the site changed its font), or Proton refuses the transfer, nyx opens
+   the link in your browser instead so you can continue by hand.
 
 The platform allows **2 VM downloads per minute**; nyx makes exactly one attempt per `d` press and
-reports the limit instead of retrying. Nothing is downloaded by nyx itself.
+reports the limit instead of retrying. Partial transfers use a `.part` file and are discarded when the
+download fails or you quit, so there is no resume.
 
 ### Where Your Data Lives
 - `~/.nyx-tui/config.json` — your **username** and locally marked completed machines. Nothing else.
