@@ -55,8 +55,41 @@ impl ConfigManager {
     }
 
     fn read_config(&self) -> Option<ConfigFile> {
-        let raw = fs::read_to_string(&self.config_file).ok()?;
-        serde_json::from_str(&raw).ok()
+        let raw = match fs::read_to_string(&self.config_file) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(error) => {
+                eprintln!(
+                    "[!] ignoring unreadable {}: {error}",
+                    self.config_file.display()
+                );
+                return None;
+            }
+        };
+        match serde_json::from_str(&raw) {
+            Ok(cfg) => Some(cfg),
+            Err(error) => {
+                // Keep the damaged file around: the next save would otherwise
+                // silently erase the username and completed list.
+                eprintln!(
+                    "[!] ignoring unreadable {}: {error}",
+                    self.config_file.display()
+                );
+                let _ = fs::rename(&self.config_file, self.config_file.with_extension("json.corrupt"));
+                None
+            }
+        }
+    }
+
+    /// Writes through a temporary file and renames, so a crash mid-write
+    /// leaves either the old or the new config, never a truncated one.
+    fn save(&self, cfg: &ConfigFile) -> Result<()> {
+        let tmp = self.config_file.with_extension("json.tmp");
+        fs::write(&tmp, serde_json::to_string(cfg)?)
+            .with_context(|| "Failed to write the configuration file")?;
+        fs::rename(&tmp, &self.config_file)
+            .with_context(|| "Failed to replace the configuration file")?;
+        Ok(())
     }
 
     /// The self-declared username used for flag & writeup submissions.
@@ -80,9 +113,7 @@ impl ConfigManager {
     pub fn save_language(&self, lang: crate::i18n::Lang) -> Result<()> {
         let mut cfg = self.read_config().unwrap_or_default();
         cfg.language = lang.as_str().to_string();
-        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
-            .with_context(|| "Failed to write the configuration file")?;
-        Ok(())
+        self.save(&cfg)
     }
 
     pub fn completed_machines(&self) -> Vec<String> {
@@ -95,18 +126,14 @@ impl ConfigManager {
     pub fn save_completed_machines(&self, slugs: Vec<String>) -> Result<()> {
         let mut cfg = self.read_config().unwrap_or_default();
         cfg.completed = slugs;
-        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
-            .with_context(|| "Failed to write the configuration file")?;
-        Ok(())
+        self.save(&cfg)
     }
 
     /// Persists the username.
     pub fn save_username(&self, username: &str) -> Result<()> {
         let mut cfg = self.read_config().unwrap_or_default();
         cfg.username = username.trim().to_string();
-        fs::write(&self.config_file, serde_json::to_string(&cfg)?)
-            .with_context(|| "Failed to write the configuration file")?;
-        Ok(())
+        self.save(&cfg)
     }
 }
 
