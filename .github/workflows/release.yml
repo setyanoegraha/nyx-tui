@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to rebuild, e.g. v0.3.0"
+        required: true
 
 permissions:
   contents: write
@@ -17,18 +22,29 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: tar.gz
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            archive: zip
     runs-on: ${{ matrix.os }}
+    env:
+      # A tag push yields the tag name; a manual run names an existing tag to rebuild.
+      REF: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -41,30 +57,36 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pkg-config
 
       - name: Build
+        env:
+          # aws-lc-sys needs NASM for its x86_64 assembly; use the checked-in
+          # objects instead of installing it.
+          AWS_LC_SYS_PREBUILT_NASM: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '1' || '' }}
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: matrix.archive == 'tar.gz'
         run: |
           cd "target/${{ matrix.target }}/release"
-          tar czf "../../../nyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" nyx
+          tar czf "../../../nyx-${{ env.REF }}-${{ matrix.target }}.tar.gz" nyx
 
       - name: Package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/nyx.exe" `
-            -DestinationPath "nyx-${{ github.ref_name }}-${{ matrix.target }}.zip"
+            -DestinationPath "nyx-${{ env.REF }}-${{ matrix.target }}.zip"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: nyx-${{ matrix.target }}
-          path: nyx-${{ github.ref_name }}-${{ matrix.target }}.*
+          path: nyx-${{ env.REF }}-${{ matrix.target }}.*
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      REF: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -75,5 +97,6 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.REF }}
           files: dist/*
           generate_release_notes: true
