@@ -39,12 +39,7 @@ impl WriteupManager {
             .flat_map(|(slug, entries)| {
                 entries
                     .into_iter()
-                    .map(move |mut w| {
-                        if w.author.is_empty() {
-                            w.author = slug.clone();
-                        }
-                        (slug.clone(), w)
-                    })
+                    .map(move |w| (slug.clone(), w))
                     .collect::<Vec<_>>()
             })
             .collect();
