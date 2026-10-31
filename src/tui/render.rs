@@ -356,7 +356,10 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
 
 fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
     // Description popup: read-only, wrapped details, sized to its content.
-    if popup.kind == PopupKind::Descripcion {
+    if matches!(
+        popup.kind,
+        PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help
+    ) {
         let width = area.width.saturating_sub(8).max(40);
         let inner = usize::from(width).saturating_sub(2);
         let mut lines = Vec::new();
@@ -365,9 +368,29 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
                 lines.extend(wrap_text(line, inner).into_iter().map(Line::from));
             }
         }
-        let height = lines.len() as u16 + 4; // blank + "Esc close" + 2 borders
+        let hint = if popup.kind == PopupKind::ConfirmDone {
+            Msg::HintEnterEscClose
+        } else if popup.kind == PopupKind::Help {
+            Msg::HintHelpScroll
+        } else {
+            Msg::HintEscClose
+        };
+        // The hint stays pinned while the body scrolls: the help panel does
+        // not fit a 24-row terminal.
+        let available = usize::from(area.height.saturating_sub(4)).max(1);
+        let total = lines.len();
+        let start = popup.scroll.min(total.saturating_sub(1));
+        lines = lines.into_iter().skip(start).take(available).collect();
+        if start > 0 {
+            lines.insert(
+                0,
+                Line::from(Span::styled(format!("↑ {start}"), Style::new().dim())),
+            );
+            lines.truncate(available);
+        }
+        let height = lines.len() as u16 + 4; // blank + hint + 2 borders
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(render_msg(lang, Msg::HintEscClose), Style::new().dim())));
+        lines.push(Line::from(Span::styled(render_msg(lang, hint), Style::new().dim())));
         let box_area = popup_area(area, width, height);
         frame.render_widget(Clear, box_area);
         let block = Block::bordered()
@@ -409,7 +432,14 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
             vec![Msg::PromptUsername.render(lang)],
             Msg::HintSave.render(lang),
         ),
-        PopupKind::Descripcion => unreachable!("rendered by the description branch above"),
+        PopupKind::DownloadDir => (
+            Msg::DownloadDirTitle.render(lang),
+            vec![Msg::PromptDownloadDir.render(lang)],
+            Msg::HintSave.render(lang),
+        ),
+        PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help => {
+            unreachable!("rendered by the read-only branch above")
+        }
     };
 
     let mut lines = Vec::new();
@@ -611,7 +641,9 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
             Some(PopupKind::Flag) => app.tr(Msg::HintSubmit),
             Some(PopupKind::WriteupSubmit) => app.tr(Msg::HintSubmitPickers),
             Some(PopupKind::Username) => app.tr(Msg::HintSave),
-            Some(PopupKind::Descripcion) => app.tr(Msg::HintEscClose),
+            Some(PopupKind::Descripcion | PopupKind::Help) => app.tr(Msg::HintEscClose),
+            Some(PopupKind::ConfirmDone) => app.tr(Msg::HintEnterEscClose),
+            Some(PopupKind::DownloadDir) => app.tr(Msg::HintSave),
             _ => app.tr(Msg::FooterPopupDefault),
         }
     } else {
@@ -636,6 +668,9 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
 
     let status = if let Some(label) = &app.fetching {
         Span::styled(format!("⟳ {label}"), Style::new().fg(WARN).bold())
+    } else if let Some(line) = app.download_progress_line() {
+        // A live transfer outranks a stale status message.
+        Span::styled(line, Style::new().fg(OK).bold())
     } else {
         match (&app.status, app.status_expiry) {
             (Some(message), Some(expiry)) if std::time::Instant::now() < expiry => {

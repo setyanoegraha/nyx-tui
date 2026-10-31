@@ -5,6 +5,7 @@ mod download;
 mod i18n;
 mod modules;
 mod open;
+mod proton;
 mod tui;
 
 #[tokio::main]

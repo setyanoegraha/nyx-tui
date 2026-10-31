@@ -11,6 +11,8 @@ anyhow = "1"
 crossterm = "0.28"
 home = "0.5"
 miniz_oxide = "0.9"
+proton-drive-rs = "0.10"
+proton-sdk = "0.10"
 ratatui = "0.29"
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",

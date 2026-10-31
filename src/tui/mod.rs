@@ -26,6 +26,12 @@ pub enum PopupKind {
     Username,
     /// Read-only machine description (`i` / Enter on Machines).
     Descripcion,
+    /// Download folder setting (`D`) — one absolute-path field.
+    DownloadDir,
+    /// Confirmation before changing the completed mark (`m`).
+    ConfirmDone,
+    /// Read-only shortcut reference (`h`).
+    Help,
 }
 
 /// Language options of vulnyx.com (`WRITEUP_LANGS` in the site's /js/index.js,
@@ -131,6 +137,9 @@ pub struct Popup {
     /// WriteupSubmit only: type picker state (single-select).
     pub type_open: bool,
     pub type_cursor: usize,
+    /// Read-only popups: first visible line (the help panel does not fit a
+    /// 24-row terminal).
+    pub scroll: usize,
 }
 
 impl Popup {
@@ -304,6 +313,8 @@ pub struct ActionReport {
     pub entries: Vec<(ReportKind, String)>,
     pub changed: bool,
     pub status: String,
+    /// Transfer started by this action, adopted by the event loop.
+    pub download: Option<crate::proton::ProtonDownload>,
 }
 
 /// Community writeups of one machine (`w`), rendered as a table popup.
@@ -413,6 +424,8 @@ pub struct AppState {
     pub writeups_popup: Option<WriteupsPopup>,
     pub pending_refresh_after_close: bool,
     pub data: TuiData,
+    /// Proton Drive transfers in flight; finished ones leave a status message.
+    pub downloads: Vec<crate::proton::ProtonDownload>,
 }
 
 /// How long a status message stays visible in the footer.
@@ -441,6 +454,7 @@ impl AppState {
             writeups_popup: None,
             pending_refresh_after_close: false,
             data,
+            downloads: Vec::new(),
         }
     }
 
@@ -452,6 +466,11 @@ impl AppState {
     }
 
     pub fn request_quit(&mut self) {
+        // Stop in-flight transfers first: a detached task writing into a
+        // half-closed process would leave a stray `.part` behind.
+        for job in &self.downloads {
+            job.request_cancel();
+        }
         self.quit = true;
     }
 
@@ -466,7 +485,8 @@ impl AppState {
         msg.render(self.lang)
     }
 
-    /// Clears expired status messages; called once per event-loop iteration.
+    /// Clears expired status messages and retires finished downloads; called
+    /// once per event-loop iteration.
     pub fn tick(&mut self) {
         if let Some(expiry) = self.status_expiry {
             if std::time::Instant::now() >= expiry {
@@ -474,6 +494,42 @@ impl AppState {
                 self.status_expiry = None;
             }
         }
+
+        let mut finished = Vec::new();
+        self.downloads.retain(|job| {
+            if job.is_finished() {
+                finished.push(job.progress());
+                false
+            } else {
+                true
+            }
+        });
+        // A completed transfer becomes a one-shot message so the final state
+        // outlives the job without occupying the progress slot forever.
+        if let Some(progress) = finished.pop() {
+            let files = &progress.file;
+            let message = if let Some(error) = progress.failed {
+                self.tr(Msg::DownloadFailed(error))
+            } else if progress.already_present {
+                self.tr(Msg::DownloadAlreadyPresent(files.clone()))
+            } else {
+                self.tr(Msg::DownloadDone(files.clone()))
+            };
+            self.set_status(message);
+        }
+    }
+
+    /// Footer line for the first running transfer, if any.
+    pub fn download_progress_line(&self) -> Option<String> {
+        let job = self.downloads.first()?;
+        let progress = job.progress();
+        Some(self.tr(Msg::DownloadProgress(
+            progress.machine.clone(),
+            progress.file.clone(),
+            progress.done,
+            progress.total,
+            progress.speed_bps,
+        )))
     }
 
     pub fn set_data(&mut self, data: TuiData) {
@@ -514,14 +570,13 @@ impl AppState {
         self.completed.iter().any(|s| s == slug) || auto.contains(slug)
     }
 
-    /// Toggles the manual completed mark of the selected machine.
-    pub fn toggle_completed(&mut self) {
-        let Some(machine) = self.selected_machine() else {
-            self.set_status(self.tr(Msg::NothingSelected));
+    /// Applies the completed-mark change confirmed by the pending popup.
+    pub fn confirm_completed(&mut self) {
+        let Some(popup) = self.popup.take() else {
             return;
         };
-        let slug = machine.slug.clone();
-        let name = machine.name.clone();
+        let slug = popup.machine_slug;
+        let name = popup.machine;
         let removing = self.completed.contains(&slug);
         if removing {
             self.completed.retain(|s| *s != slug);
@@ -637,6 +692,88 @@ impl AppState {
             flag_types: Vec::new(),
             lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
             type_open: false, type_cursor: 0,
+            scroll: 0,
+        });
+    }
+
+    /// Download folder popup (`D`) prefilled with the current directory.
+    pub fn open_download_dir_popup(&mut self) {
+        if self.popup.is_some() || self.report.is_some() {
+            return;
+        }
+        let current = crate::config::ConfigManager::new()
+            .download_dir()
+            .display()
+            .to_string();
+        self.popup = Some(Popup {
+            kind: PopupKind::DownloadDir,
+            machine: String::new(),
+            machine_slug: String::new(),
+            buffers: vec![current],
+            field: 0,
+            notice: None,
+            readonly: false,
+            text: None,
+            flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
+            scroll: 0,
+        });
+    }
+
+    /// Read-only shortcut reference (`h`), available on both tabs.
+    pub fn open_help_popup(&mut self) {
+        if self.popup.is_some() || self.report.is_some() || self.writeups_popup.is_some() {
+            return;
+        }
+        self.popup = Some(Popup {
+            kind: PopupKind::Help,
+            machine: self.tr(Msg::HelpTitle),
+            machine_slug: String::new(),
+            buffers: Vec::new(),
+            field: 0,
+            notice: None,
+            readonly: true,
+            text: Some(self.tr(Msg::HelpText)),
+            flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
+            scroll: 0,
+        });
+    }
+
+    /// Asks before changing the completed mark (`m`), with distinct wording
+    /// for marking and un-marking so a second press cannot silently revert it.
+    pub fn request_toggle_completed(&mut self) {
+        if self.popup.is_some() || self.report.is_some() {
+            return;
+        }
+        if self.tab != Tab::Machines {
+            return;
+        }
+        let Some(machine) = self.selected_machine() else {
+            self.set_status(self.tr(Msg::NothingSelected));
+            return;
+        };
+        let removing = self.completed.contains(&machine.slug);
+        let text = if removing {
+            self.tr(Msg::UnmarkDoneConfirm(machine.name.clone()))
+        } else {
+            self.tr(Msg::MarkDoneConfirm(machine.name.clone()))
+        };
+        self.popup = Some(Popup {
+            kind: PopupKind::ConfirmDone,
+            machine: machine.name.clone(),
+            machine_slug: machine.slug.clone(),
+            buffers: Vec::new(),
+            field: 0,
+            notice: None,
+            readonly: true,
+            text: Some(text),
+            flag_types: Vec::new(),
+            lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
+            type_open: false, type_cursor: 0,
+            scroll: 0,
         });
     }
 
@@ -698,6 +835,7 @@ impl AppState {
             flag_types: Vec::new(),
             lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
             type_open: false, type_cursor: 0,
+            scroll: 0,
         });
     }
 
@@ -765,6 +903,7 @@ impl AppState {
             flag_types: Vec::new(),
             lang_open: false, lang_cursor: 0, lang_selected: vec!["en"],
             type_open: false, type_cursor: 0,
+            scroll: 0,
         });
     }
 
@@ -811,6 +950,7 @@ impl AppState {
                 ],
                 changed: false,
                 status: self.tr(Msg::NoSlotsLeft(machine.name.clone())),
+                download: None,
             });
             return;
         }
@@ -847,6 +987,7 @@ impl AppState {
             flag_types,
             lang_open: false, lang_cursor: 0, lang_selected: Vec::new(),
             type_open: false, type_cursor: 0,
+            scroll: 0,
         });
     }
 
@@ -893,6 +1034,27 @@ impl AppState {
             .collect();
 
         match popup.kind {
+            PopupKind::DownloadDir => {
+                let value = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
+                match crate::config::resolve_download_dir(&value) {
+                    Ok(dir) => {
+                        match crate::config::ConfigManager::new().save_download_dir(&dir) {
+                            Ok(()) => self.set_status(
+                                self.tr(Msg::DownloadDirSet(dir.display().to_string())),
+                            ),
+                            Err(error) => {
+                                self.popup = Some(popup);
+                                self.set_status(format!("[!] {error:#}"));
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        // Keep the typed path so it can be fixed in place.
+                        self.popup = Some(popup);
+                        self.set_status(format!("[!] {error:#}"));
+                    }
+                }
+            }
             PopupKind::Username => {
                 let username = values.first().map(|(_, v)| v.clone()).unwrap_or_default();
                 if username.len() < 2 {
@@ -959,7 +1121,7 @@ impl AppState {
                     lang: self.lang,
                 });
             }
-            PopupKind::Descripcion => {}
+            PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help => {}
         }
     }
 
@@ -1073,6 +1235,9 @@ fn event_loop(
                 Ok(report) => {
                     app.set_status(report.status.clone());
                     app.pending_refresh_after_close = report.changed;
+                    if let Some(job) = report.download.clone() {
+                        app.downloads.push(job);
+                    }
                     app.report = Some(report);
                 }
                 Err(error) => {
@@ -1165,6 +1330,21 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
     if app.popup.is_some() {
         if app.popup.as_ref().map(|p| p.readonly) == Some(true) {
             match key.code {
+                KeyCode::Enter
+                    if app.popup.as_ref().map(|p| p.kind) == Some(PopupKind::ConfirmDone) =>
+                {
+                    app.confirm_completed();
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = app.popup.as_mut() {
+                        p.scroll = p.scroll.saturating_add(1);
+                    }
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = app.popup.as_mut() {
+                        p.scroll = p.scroll.saturating_sub(1);
+                    }
+                }
                 KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => app.popup = None,
                 _ => {}
             }
@@ -1309,6 +1489,8 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 }
             }
             KeyCode::Char('d') => app.open_download_page(),
+            KeyCode::Char('D') => app.open_download_dir_popup(),
+            KeyCode::Char('h') => app.open_help_popup(),
             KeyCode::Char('f') => app.open_flag_popup(),
             KeyCode::Char('w') => app.open_writeups_popup(),
             KeyCode::Char('u') => app.open_writeup_submit_popup(),
@@ -1316,12 +1498,7 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                 app.only_first_blood = !app.only_first_blood;
                 app.reset_list_position();
             }
-            KeyCode::Char('m') => {
-                if app.tab == Tab::Machines {
-                    app.toggle_completed();
-                    app.reset_list_position();
-                }
-            }
+            KeyCode::Char('m') => app.request_toggle_completed(),
             KeyCode::Char('x') => {
                 if app.tab == Tab::Machines {
                     app.hide_completed = !app.hide_completed;
@@ -1364,7 +1541,115 @@ mod tests {
             lang_selected: vec!["en"],
             type_open: false,
             type_cursor: 0,
+            scroll: 0,
         }
+    }
+
+    fn machine_fixture() -> Machine {
+        Machine {
+            slug: "apex".into(),
+            name: "APex".into(),
+            creator: String::new(),
+            os: "Linux".into(),
+            difficulty: "Easy".into(),
+            release_date: String::new(),
+            platforms: Vec::new(),
+            size: String::new(),
+            md5: String::new(),
+            download_url: String::new(),
+            first_user: String::new(),
+            first_root: String::new(),
+            tech_tags: Vec::new(),
+            pts_user: 0,
+            pts_root: 0,
+        }
+    }
+
+    /// Restores the on-disk completed list even if an assertion unwinds.
+    struct CompletedGuard(Vec<String>);
+    impl Drop for CompletedGuard {
+        fn drop(&mut self) {
+            let _ = crate::config::ConfigManager::new()
+                .save_completed_machines(self.0.clone());
+        }
+    }
+
+    fn app_with_one_machine() -> (AppState, CompletedGuard) {
+        let guard = CompletedGuard(
+            crate::config::ConfigManager::new().completed_machines(),
+        );
+        let data = TuiData {
+            machines: vec![machine_fixture()],
+            writeups: Vec::new(),
+        };
+        let mut app = AppState::new(data);
+        app.tab = Tab::Machines;
+        app.filter.clear();
+        app.selected = 0;
+        (app, guard)
+    }
+
+    #[test]
+    fn mark_done_asks_with_direction_specific_wording() {
+        let (mut app, _guard) = app_with_one_machine();
+        let was_marked = app.completed.contains(&"apex".to_string());
+
+        app.request_toggle_completed();
+        let popup = app.popup.as_ref().expect("confirmation popup");
+        assert_eq!(popup.kind, PopupKind::ConfirmDone);
+        let expected = if was_marked {
+            Msg::UnmarkDoneConfirm("APex".into())
+        } else {
+            Msg::MarkDoneConfirm("APex".into())
+        };
+        assert_eq!(popup.text, Some(expected.render(Lang::En)));
+
+        // Cancelling must not touch the mark.
+        app.popup = None;
+        assert_eq!(app.completed.contains(&"apex".to_string()), was_marked);
+
+        app.request_toggle_completed();
+        app.confirm_completed();
+        assert!(app.popup.is_none());
+        assert_eq!(app.completed.contains(&"apex".to_string()), !was_marked);
+
+        // The second press asks the other question and reverts on confirm.
+        app.request_toggle_completed();
+        let popup = app.popup.as_ref().expect("second confirmation");
+        let expected = if was_marked {
+            Msg::MarkDoneConfirm("APex".into())
+        } else {
+            Msg::UnmarkDoneConfirm("APex".into())
+        };
+        assert_eq!(popup.text, Some(expected.render(Lang::En)));
+        app.confirm_completed();
+        assert_eq!(app.completed.contains(&"apex".to_string()), was_marked);
+    }
+
+    #[test]
+    fn link_hints_stay_documented() {
+        let (mut app, _guard) = app_with_one_machine();
+        app.open_help_popup();
+        let popup = app.popup.as_ref().expect("help popup");
+        assert_eq!(popup.kind, PopupKind::Help);
+        assert!(popup.readonly);
+        let text = popup.text.clone().unwrap_or_default();
+        assert!(text.contains("[ Navigation ]"));
+        assert!(text.contains("[ Popups ]"));
+        assert!(text.contains("D              set the download folder"));
+    }
+
+    #[test]
+    fn download_dir_popup_prefills_the_current_directory() {
+        let (mut app, _guard) = app_with_one_machine();
+        app.open_download_dir_popup();
+        let popup = app.popup.as_ref().expect("folder popup");
+        assert_eq!(popup.kind, PopupKind::DownloadDir);
+        let expected = crate::config::ConfigManager::new()
+            .download_dir()
+            .display()
+            .to_string();
+        assert_eq!(popup.buffers.first(), Some(&expected));
     }
 
     fn lang_index(code: &str) -> usize {
