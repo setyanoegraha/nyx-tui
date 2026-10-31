@@ -1,18 +1,20 @@
 # nyx-tui
 
-### Unofficial VulNyx terminal dashboard — TUI no oficial para VulNyx
+### Unofficial VulNyx terminal dashboard
 
 <p align="center">
-  <img src="assets/dashboard-machines.png" alt="nyx-tui — Machines tab with Nord theme" width="100%">
+  <img src="assets/dashboard-machines.png" alt="nyx-tui — Machines tab with the Nord theme" width="100%">
 </p>
 
 **[English](README.md) | [Español](README.es.md)**
 
 ---
 
-**nyx-tui** is an interactive terminal dashboard for [VulNyx](https://vulnyx.com): browse the machine catalog, submit first-blood flags, read and submit community writeups, and track your leaderboard position — all without leaving the terminal. Machine downloads solve the VulnyX CAPTCHA inside the terminal and hand you the Proton Drive link.
+**nyx-tui** is an interactive terminal dashboard for [VulNyx](https://vulnyx.com): browse the machine catalog, submit first-blood flags, read and submit community writeups, and track your leaderboard position — all without leaving the terminal.
 
-One command, one screen: running `nyx` opens the dashboard. Written in pure **Rust** (ratatui), shipped as a single static binary. UI in English, Nord theme. **No account needed** — just a username.
+Downloads run end-to-end in the terminal. Press `d` and nyx fetches the download page, reads the CAPTCHA image itself, submits the code, resolves the Proton Drive link and streams the archive into your download folder with a live progress line. No browser round trip, no manual code entry.
+
+One command, one screen: running `nyx` opens the dashboard. Written in pure **Rust** (ratatui), shipped as a single static binary. Nord theme. The whole interface is **English or Spanish**, switchable with `l`. **No account needed** — just a username.
 
 ---
 
@@ -20,25 +22,33 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 
 | Machines | Progress |
 | :---: | :---: |
-| ![Machines tab](assets/dashboard-machines.png) | ![Progress tab](assets/dashboard-progress.png) |
+| ![Machines tab: catalog with difficulty colors, tech tags and first-blood status](assets/dashboard-machines.png) | ![Progress tab: identity, statistics and your published writeups](assets/dashboard-progress.png) |
+| **Machine details** | **Community writeups** |
+| ![Machine details popup: difficulty, platform, MD5, tags and first-blood holders](assets/popup-details.png) | ![Community writeups popup: articles and videos with author, date and URL](assets/popup-writeups.png) |
+| **Keyboard shortcuts** | **Download folder** |
+| ![Keyboard shortcut panel with navigation, machines, progress and popup sections](assets/popup-help.png) | ![Download folder popup prefilled with an absolute path](assets/popup-download-dir.png) |
+| **First blood** | |
+| ![First blood report: both slots already taken, with the holders](assets/report-firstblood.png) | |
 
 ## Features
 
 * **One command** — `nyx` opens the dashboard: catalog, first-blood flags, writeups and your leaderboard position in one screen.
 * **Machines** — the full catalog with the site's official difficulty colors (Low/Easy/Medium/Hard), OS (Linux/Windows), tech tags, and first-blood status per machine. Instant `/` filtering and `s` sorting (site order → name → date → difficulty).
+* **In-app downloads** — `d` solves the CAPTCHA and streams the machine archive from Proton Drive to your download folder, with speed and size in the footer. One attempt per press; the platform limit is reported, never retried.
 * **First-blood flag submission** — `f` opens a popup to submit User and Root flags (MD5). Slots already taken are shown as read-only notices; open slots are ready for your MD5 hash. Your username is attached automatically.
 * **First-blood filter** — `b` shows only machines with an open first-blood slot, so you can be the first to pwn a fresh release.
 * **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`) — the submission popup uses pickers for **type** (Text/Video, single-select) and **language** (all 62 codes of vulnyx.com, multi-select), so nothing gets mistyped.
-* **Completed tracking** — machines you finished turn `✓` green in the list: automatic when one of your writeups is approved on the site, or manually per machine with `m` (persisted locally in `~/.nyx-tui/config.json`). `x` hides completed machines so only pending ones remain.
+* **Completed tracking** — machines you finished turn `✓` green in the list: automatic when one of your writeups is approved on the site, or manually per machine with `m` (confirmation required, persisted locally). `x` hides completed machines so only pending ones remain.
 * **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules, including the site's staff exclusions so ranks match vulnyx.com).
 * **Username management** — `a` opens the username popup; whatever you set is attached to all submissions and used for your leaderboard position.
 * **UI language** — `l` toggles the whole interface between **English** and **Español** instantly (status messages, popups, hints, everything). Your choice is saved and restored on every launch.
+* **Shortcut reference** — `h` opens a scrollable panel listing every key, grouped by context.
 
 ---
 
 ## Prerequisites
 
-* **OS**: Linux (developed and tested on Arch Linux); macOS and Windows release binaries are provided.
+* **OS**: Linux (developed and tested on Arch Linux); macOS and Windows binaries are published for both x86_64 and arm64.
 * A [VulNyx](https://vulnyx.com) account is **not** required — the platform works with a self-declared username.
 
 ---
@@ -51,13 +61,15 @@ Grab the archive for your platform from the [Releases](https://github.com/setyan
 
 | Platform | Archive |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.2.0-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.2.0-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.2.0-x86_64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `nyx-v0.3.0-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.3.0-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.3.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.3.0-x86_64-pc-windows-msvc.zip` |
+| Windows arm64 | `nyx-v0.3.0-aarch64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
@@ -75,7 +87,7 @@ cargo install --path .
 cargo install --git https://github.com/setyanoegraha/nyx-tui.git
 ```
 
-> Requires the Rust toolchain (1.85+): https://rustup.rs
+> Requires the Rust toolchain (1.96+): https://rustup.rs
 
 ---
 
@@ -88,6 +100,16 @@ nyx
 ```
 
 The dashboard loads immediately — no login popup. Press `a` to set your **username** (e.g. `noneofyour`). This username is attached to all flag and writeup submissions and used to compute your leaderboard position. You can change it at any time.
+
+### Command line
+
+```
+nyx            open the interactive dashboard
+nyx --version  print the version
+nyx --help     show the short usage text
+```
+
+Everything else lives inside the dashboard.
 
 ---
 
@@ -123,8 +145,8 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 VulnyX gates machine downloads behind a 5-character CAPTCHA image. nyx-tui reads the image itself:
 
 1. Press `d` on a machine — nyx fetches the download page and the CAPTCHA in one session, decodes the
-   image against the site's fixed 30-character font (`A-Z` minus `I O S`, digits minus `0 1 5`), and
-   submits the code.
+   image against the site's fixed 30-character alphabet (`A-Z` without `I`, `O`, `S`; digits without
+   `0`, `1`, `5`), and submits the code.
 2. On success it resolves the Proton Drive link itself and downloads the archive to your download
    directory, streaming progress into the footer (`↓ APex · APex.zip · 188.0 MB/1.2 GB · 3.6 MB/s`).
    The directory defaults to `~/Downloads/nyx`; change it with `D` (absolute paths only) or by editing
@@ -137,7 +159,8 @@ reports the limit instead of retrying. Partial transfers use a `.part` file and 
 download fails or you quit, so there is no resume.
 
 ### Where Your Data Lives
-- `~/.nyx-tui/config.json` — your **username** and locally marked completed machines. Nothing else.
+
+- `~/.nyx-tui/config.json` — your **username**, UI language, download folder and locally marked completed machines. Nothing else.
 - No password is stored — VulNyx has no accounts, and the username is self-declared.
 
 ---
@@ -162,7 +185,7 @@ Delete `~/.nyx-tui/` to clear all local data.
 
 ## Disclaimer
 
-nyx-tui is an **unofficial** community tool and is not affiliated with VulNyx. It only uses the platform's public JSON data and completes the same CAPTCHA gate the web app uses, one download at a time — be kind to the service.
+nyx-tui is an **unofficial** community tool and is not affiliated to VulNyx. It only uses the platform's public JSON data and completes the same CAPTCHA gate the web app uses, one download at a time — be kind to the service.
 
 ---
 
