@@ -55,9 +55,7 @@ impl NyxClient {
             } else {
                 builder.redirect(reqwest::redirect::Policy::none())
             };
-            builder
-                .build()
-                .context("Failed to build the HTTP client")
+            builder.build().context("Failed to build the HTTP client")
         };
         Ok(Self {
             client: build(true)?,

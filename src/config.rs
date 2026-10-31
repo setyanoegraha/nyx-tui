@@ -78,7 +78,10 @@ impl ConfigManager {
                     "[!] ignoring unreadable {}: {error}",
                     self.config_file.display()
                 );
-                let _ = fs::rename(&self.config_file, self.config_file.with_extension("json.corrupt"));
+                let _ = fs::rename(
+                    &self.config_file,
+                    self.config_file.with_extension("json.corrupt"),
+                );
                 None
             }
         }
@@ -233,11 +236,7 @@ mod tests {
     #[test]
     fn legacy_config_without_completed_key_reads_empty() {
         let dir = temp_dir("legacy");
-        fs::write(
-            dir.join(CONFIG_FILE_NAME),
-            r#"{"username":"oldschool"}"#,
-        )
-        .unwrap();
+        fs::write(dir.join(CONFIG_FILE_NAME), r#"{"username":"oldschool"}"#).unwrap();
         let manager = ConfigManager::in_dir(dir.clone());
         assert_eq!(manager.username(), "oldschool");
         assert!(manager.completed_machines().is_empty());
@@ -272,11 +271,7 @@ mod tests {
     #[test]
     fn saved_download_dir_roundtrips_and_keeps_other_keys() {
         let dir = temp_dir("download-dir");
-        fs::write(
-            dir.join(CONFIG_FILE_NAME),
-            r#"{"username":"u","future":7}"#,
-        )
-        .unwrap();
+        fs::write(dir.join(CONFIG_FILE_NAME), r#"{"username":"u","future":7}"#).unwrap();
         let manager = ConfigManager::in_dir(dir.clone());
         let target = dir.join("archives");
         manager.save_download_dir(&target).unwrap();
@@ -298,7 +293,9 @@ mod tests {
         )
         .unwrap();
         let manager = ConfigManager::in_dir(dir.clone());
-        manager.save_completed_machines(vec!["zeta".into()]).unwrap();
+        manager
+            .save_completed_machines(vec!["zeta".into()])
+            .unwrap();
         let raw = fs::read_to_string(dir.join(CONFIG_FILE_NAME)).unwrap();
         let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(value["download_dir"], "/tmp/labs");

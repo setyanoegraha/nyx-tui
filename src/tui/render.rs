@@ -7,8 +7,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState,
 use ratatui::Frame;
 
 use super::{
-    ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WRITEUP_LANGS,
-    WRITEUP_TYPES, WriteupsPopup,
+    ActionReport, AppState, InputMode, Popup, PopupKind, ReportKind, Tab, WriteupsPopup,
+    WRITEUP_LANGS, WRITEUP_TYPES,
 };
 use crate::i18n::{Lang, Msg};
 
@@ -141,7 +141,11 @@ fn draw_machines(frame: &mut Frame, area: Rect, app: &AppState) {
             };
             Row::new([
                 Span::styled(
-                    if done { format!("✓ {}", m.name) } else { m.name.clone() },
+                    if done {
+                        format!("✓ {}", m.name)
+                    } else {
+                        m.name.clone()
+                    },
                     if done {
                         Style::new().fg(OK).bold()
                     } else {
@@ -207,7 +211,10 @@ fn filter_block(app: &AppState) -> Block<'_> {
             };
             format!(
                 "{}{}{}{}{}",
-                app.tr(Msg::MachinesTitle(app.visible_machines().len(), app.data.machines.len())),
+                app.tr(Msg::MachinesTitle(
+                    app.visible_machines().len(),
+                    app.data.machines.len()
+                )),
                 app.machine_sort.indicator(app.lang),
                 done_note,
                 fb_note,
@@ -390,7 +397,10 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
         }
         let height = lines.len() as u16 + 4; // blank + hint + 2 borders
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(render_msg(lang, hint), Style::new().dim())));
+        lines.push(Line::from(Span::styled(
+            render_msg(lang, hint),
+            Style::new().dim(),
+        )));
         let box_area = popup_area(area, width, height);
         frame.render_widget(Clear, box_area);
         let block = Block::bordered()
@@ -424,7 +434,11 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
         ),
         PopupKind::WriteupSubmit => (
             Msg::SubmitWriteupTitle(popup.machine.clone()).render(lang),
-            vec![Msg::PromptUrl.render(lang), Msg::PromptType.render(lang), Msg::PromptLanguage.render(lang)],
+            vec![
+                Msg::PromptUrl.render(lang),
+                Msg::PromptType.render(lang),
+                Msg::PromptLanguage.render(lang),
+            ],
             Msg::HintSubmitPickers.render(lang),
         ),
         PopupKind::Username => (
@@ -495,12 +509,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
         }
         let visible = 10.min(WRITEUP_LANGS.len());
         let start = popup.lang_cursor.saturating_sub(visible - 1);
-        for (index, (code, label)) in WRITEUP_LANGS
-            .iter()
-            .enumerate()
-            .skip(start)
-            .take(visible)
-        {
+        for (index, (code, label)) in WRITEUP_LANGS.iter().enumerate().skip(start).take(visible) {
             let mark = if popup.lang_selected.contains(code) {
                 "✓"
             } else {
@@ -774,7 +783,7 @@ mod tests {
         let long = vec![(ReportKind::Info, "a".repeat(200))];
         let (width, height) = report_box(&long, (80, 24));
         assert_eq!(width, 78); // inner capped at 76 + 2 borders
-        // 200 chars wrapped at inner-2 -> 3 lines; blanks + hint + borders.
+                               // 200 chars wrapped at inner-2 -> 3 lines; blanks + hint + borders.
         assert_eq!(height, 2 + 3 + 1 + 2);
 
         let huge = vec![(ReportKind::Failure, "b".repeat(400))];

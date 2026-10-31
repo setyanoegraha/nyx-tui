@@ -54,7 +54,10 @@ impl std::fmt::Debug for ProtonDownload {
 impl ProtonDownload {
     /// Snapshot for rendering.
     pub fn progress(&self) -> Progress {
-        self.state.lock().map(|state| state.clone()).unwrap_or_default()
+        self.state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
     }
 
     pub fn request_cancel(&self) {
@@ -154,7 +157,10 @@ pub async fn start(machine: String, link: String, dir: PathBuf) -> Result<Proton
 
 /// Opens the public link; a custom password turns the crypto error into a
 /// sentence instead.
-async fn open_link(config: &ProtonClientConfiguration, link: &str) -> Result<ProtonDrivePublicLinkClient> {
+async fn open_link(
+    config: &ProtonClientConfiguration,
+    link: &str,
+) -> Result<ProtonDrivePublicLinkClient> {
     match ProtonDrivePublicLinkClient::open(config.clone(), link, None).await {
         Ok(client) => Ok(client),
         Err(error) => {
@@ -209,9 +215,7 @@ async fn pick_archive(client: &ProtonDrivePublicLinkClient) -> Result<(Node, u64
 fn is_archive(name: &str) -> bool {
     const ARCHIVE_SUFFIXES: [&str; 5] = [".zip", ".ova", ".7z", ".tar.gz", ".tar"];
     let name = name.to_lowercase();
-    ARCHIVE_SUFFIXES
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
+    ARCHIVE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
 
 fn node_size(node: &Node) -> u64 {
@@ -230,7 +234,10 @@ fn node_size(node: &Node) -> u64 {
 
 /// Keeps the archive extension: `APex.ova` stages as `APex.ova.part`.
 fn part_extension(destination: &Path) -> String {
-    match destination.extension().and_then(|extension| extension.to_str()) {
+    match destination
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
         Some(extension) => format!("{extension}.part"),
         None => "part".to_string(),
     }
@@ -260,8 +267,7 @@ impl Write for CountingWriter {
             let elapsed = now.duration_since(self.last_time).as_secs_f64();
             // Sampling at 4 Hz keeps the speed readable without a lock per write.
             if elapsed >= 0.25 {
-                progress.speed_bps =
-                    ((self.done - self.last_bytes) as f64 / elapsed) as u64;
+                progress.speed_bps = ((self.done - self.last_bytes) as f64 / elapsed) as u64;
                 self.last_bytes = self.done;
                 self.last_time = now;
             }
