@@ -163,6 +163,10 @@ pub enum Msg {
     DownloadDirSet(String),
     MarkDoneConfirm(String),
     UnmarkDoneConfirm(String),
+    DownloadLimitTitle,
+    DownloadLimitReached(usize),
+    QuitCancelDownloads(usize),
+    DoneNoWriteupTitle(usize),
     HelpTitle,
     HelpText,
     DownloadDirTitle,
@@ -686,6 +690,31 @@ impl Msg {
             Msg::DownloadDirSet(path) => match lang {
                 Lang::En => format!("[✓] Downloads go to {path}"),
                 Lang::Es => format!("[✓] Las descargas van a {path}"),
+            },
+            Msg::DownloadLimitTitle => match lang {
+                Lang::En => " Download limit ",
+                Lang::Es => " Límite de descargas ",
+            }
+            .to_string(),
+            Msg::DownloadLimitReached(limit) => match lang {
+                Lang::En => format!(
+                    "At most {limit} downloads at the same time — wait for one to finish."
+                ),
+                Lang::Es => format!(
+                    "Como máximo {limit} descargas a la vez — espera a que termine una."
+                ),
+            },
+            Msg::QuitCancelDownloads(count) => match lang {
+                Lang::En => format!(
+                    "{count} download(s) in progress — quitting now cancels them.\n\nEnter quits anyway, Esc stays."
+                ),
+                Lang::Es => format!(
+                    "{count} descarga(s) en curso — salir ahora las cancela.\n\nEnter sale igualmente, Esc se queda."
+                ),
+            },
+            Msg::DoneNoWriteupTitle(count) => match lang {
+                Lang::En => format!(" Done — no writeup ({count}) "),
+                Lang::Es => format!(" Hechas — sin writeup ({count}) "),
             },
             Msg::MarkDoneConfirm(name) => match lang {
                 Lang::En => format!(

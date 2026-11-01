@@ -41,11 +41,17 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
-    /// Default manager rooted at the user's home directory.
+    /// Default manager rooted at the user's home directory. The
+    /// `NYX_TUI_CONFIG_DIR` environment variable overrides the directory; the
+    /// test suite points it at a per-process temp dir so parallel tests never
+    /// race on the real `~/.nyx-tui/config.json`.
     pub fn new() -> Self {
-        let dir = home::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(CONFIG_DIR_NAME);
+        let dir = match std::env::var_os("NYX_TUI_CONFIG_DIR") {
+            Some(dir) => PathBuf::from(dir),
+            None => home::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(CONFIG_DIR_NAME),
+        };
         Self::in_dir(dir)
     }
 

@@ -28,11 +28,12 @@ fn render_msg(lang: Lang, msg: Msg) -> String {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut AppState) {
+    let download_rows = app.download_progress_lines().len() as u16;
     let [header, tabs, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(1),
-        Constraint::Length(2),
+        Constraint::Length(2 + download_rows),
     ])
     .areas(frame.area());
 
@@ -257,6 +258,14 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
     let username = if username.is_empty() { "-" } else { &username };
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(45), Constraint::Fill(1)]).areas(area);
+    let done_rows = app.completed_without_writeup();
+    let done_height = if done_rows.is_empty() {
+        0
+    } else {
+        (done_rows.len() as u16 + 3).min(right.height / 2)
+    };
+    let [writeups_area, done_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(done_height)]).areas(right);
 
     // ---- left: identity + first bloods + statistics ---------------------
     let first_bloods = app.data.first_bloods_of(username);
@@ -358,14 +367,53 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
     );
 
     let mut state = TableState::default().with_selected(Some(app.selected));
-    frame.render_stateful_widget(table, right, &mut state);
+    frame.render_stateful_widget(table, writeups_area, &mut state);
+
+    // Done machines that still lack a writeup of yours.
+    if !done_rows.is_empty() {
+        let header = Row::new([
+            app.tr(Msg::ColMachine),
+            app.tr(Msg::ColDifficulty),
+            app.tr(Msg::ColDate),
+        ])
+        .style(Style::new().fg(ACCENT).bold());
+        let rows: Vec<Row> = done_rows
+            .iter()
+            .map(|machine| {
+                Row::new([
+                    Span::styled(machine.name.clone(), Style::new().fg(BRIGHT).bold()),
+                    Span::styled(machine.difficulty.to_uppercase(), Style::new().fg(FROST)),
+                    Span::styled(machine.release_date.clone(), Style::new().dim()),
+                ])
+            })
+            .collect();
+        let done_table = Table::new(
+            rows,
+            [
+                Constraint::Length(18),
+                Constraint::Length(11),
+                Constraint::Fill(1),
+            ],
+        )
+        .header(header)
+        .block(
+            Block::bordered()
+                .title(Span::styled(
+                    render_msg(lang, Msg::DoneNoWriteupTitle(done_rows.len())),
+                    Style::new().fg(ACCENT).bold(),
+                ))
+                .border_style(Style::new().dim()),
+        );
+        let mut done_state = TableState::default();
+        frame.render_stateful_widget(done_table, done_area, &mut done_state);
+    }
 }
 
 fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
     // Description popup: read-only, wrapped details, sized to its content.
     if matches!(
         popup.kind,
-        PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help
+        PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help | PopupKind::ConfirmQuit
     ) {
         let width = area.width.saturating_sub(8).max(40);
         let inner = usize::from(width).saturating_sub(2);
@@ -375,7 +423,7 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
                 lines.extend(wrap_text(line, inner).into_iter().map(Line::from));
             }
         }
-        let hint = if popup.kind == PopupKind::ConfirmDone {
+        let hint = if matches!(popup.kind, PopupKind::ConfirmDone | PopupKind::ConfirmQuit) {
             Msg::HintEnterEscClose
         } else if popup.kind == PopupKind::Help {
             Msg::HintHelpScroll
@@ -451,7 +499,10 @@ fn draw_popup(frame: &mut Frame, area: Rect, popup: &Popup, lang: Lang) {
             vec![Msg::PromptDownloadDir.render(lang)],
             Msg::HintSave.render(lang),
         ),
-        PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help => {
+        PopupKind::Descripcion
+        | PopupKind::ConfirmDone
+        | PopupKind::Help
+        | PopupKind::ConfirmQuit => {
             unreachable!("rendered by the read-only branch above")
         }
     };
@@ -638,12 +689,20 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup, lan
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
-    // Two rows so the key hints never get truncated: row 1 = context
-    // actions, row 2 = global keys + status.
-    let [actions, bottom] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
+    // Row 1: context actions. Row 2: global keys + one-line status. Every
+    // running transfer adds one dedicated row above the status row.
+    let download_lines = app.download_progress_lines();
+    let extra = download_lines.len() as u16;
+    let [actions, downloads, bottom] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(extra),
+        Constraint::Length(1),
+    ])
+    .areas(area);
     let [global_area, status_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Min(24)]).areas(bottom);
+    let [downloads, _] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Min(24)]).areas(downloads);
 
     let actions_line: String = if app.popup.is_some() {
         match app.popup.as_ref().map(|p| p.kind) {
@@ -651,7 +710,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
             Some(PopupKind::WriteupSubmit) => app.tr(Msg::HintSubmitPickers),
             Some(PopupKind::Username) => app.tr(Msg::HintSave),
             Some(PopupKind::Descripcion | PopupKind::Help) => app.tr(Msg::HintEscClose),
-            Some(PopupKind::ConfirmDone) => app.tr(Msg::HintEnterEscClose),
+            Some(PopupKind::ConfirmDone | PopupKind::ConfirmQuit) => app.tr(Msg::HintEnterEscClose),
             Some(PopupKind::DownloadDir) => app.tr(Msg::HintSave),
             _ => app.tr(Msg::FooterPopupDefault),
         }
@@ -669,6 +728,14 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
         actions,
     );
 
+    if !download_lines.is_empty() {
+        let lines: Vec<Line> = download_lines
+            .into_iter()
+            .map(|line| Line::from(Span::styled(line, Style::new().fg(OK).bold())))
+            .collect();
+        frame.render_widget(Paragraph::new(lines), downloads);
+    }
+
     let global = app.tr(Msg::FooterGlobal);
     frame.render_widget(
         Paragraph::new(Span::styled(global, Style::new().dim())),
@@ -677,9 +744,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &AppState) {
 
     let status = if let Some(label) = &app.fetching {
         Span::styled(format!("⟳ {label}"), Style::new().fg(WARN).bold())
-    } else if let Some(line) = app.download_progress_line() {
-        // A live transfer outranks a stale status message.
-        Span::styled(line, Style::new().fg(OK).bold())
     } else {
         match (&app.status, app.status_expiry) {
             (Some(message), Some(expiry)) if std::time::Instant::now() < expiry => {

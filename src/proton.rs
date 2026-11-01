@@ -21,6 +21,11 @@ use proton_sdk::config::ProtonClientConfiguration;
 /// accepted; `external-nyx-tui` is rejected with "Product `nyx` is not valid".
 const APP_VERSION: &str = concat!("external-drive-nyxtui@", env!("CARGO_PKG_VERSION"));
 
+/// Hard cap on simultaneous machine transfers. The platform itself allows
+/// two downloads per minute; more than this many concurrent jobs would only
+/// queue behind Proton and starve the footer.
+pub const MAX_PARALLEL_DOWNLOADS: usize = 2;
+
 /// Live state of one download, shared between the transfer task and the renderer.
 #[derive(Debug, Clone, Default)]
 pub struct Progress {
@@ -62,6 +67,27 @@ impl ProtonDownload {
 
     pub fn request_cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// True when the user asked for cancellation; used by the quit tests.
+    #[cfg(test)]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    /// Builds a job with pre-set progress and no transfer task; tests only.
+    #[cfg(test)]
+    pub fn stub_for_tests(machine: &str, file: &str, done: u64, total: u64) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(Progress {
+                machine: machine.to_string(),
+                file: file.to_string(),
+                done,
+                total,
+                ..Progress::default()
+            })),
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// True once the transfer ended (success, failure, or nothing to do).

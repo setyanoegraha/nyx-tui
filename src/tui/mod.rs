@@ -32,6 +32,8 @@ pub enum PopupKind {
     ConfirmDone,
     /// Read-only shortcut reference (`h`).
     Help,
+    /// Confirmation before quitting with transfers still running.
+    ConfirmQuit,
 }
 
 /// Language options of vulnyx.com (`WRITEUP_LANGS` in the site's /js/index.js,
@@ -466,11 +468,42 @@ impl AppState {
     }
 
     pub fn request_quit(&mut self) {
-        // Stop in-flight transfers first: a detached task writing into a
-        // half-closed process would leave a stray `.part` behind.
+        if self.downloads.is_empty() {
+            self.quit = true;
+            return;
+        }
+        if self.popup.is_some() || self.report.is_some() {
+            return;
+        }
+        // Transfers are cancelled only after the user confirms: a detached
+        // task writing into a half-closed process would leave a `.part`.
+        let text = self.tr(Msg::QuitCancelDownloads(self.downloads.len()));
+        self.popup = Some(Popup {
+            kind: PopupKind::ConfirmQuit,
+            machine: String::new(),
+            machine_slug: String::new(),
+            buffers: Vec::new(),
+            field: 0,
+            notice: None,
+            readonly: true,
+            text: Some(text),
+            flag_types: Vec::new(),
+            lang_open: false,
+            lang_cursor: 0,
+            lang_selected: Vec::new(),
+            type_open: false,
+            type_cursor: 0,
+            scroll: 0,
+        });
+    }
+
+    /// Cancels every running transfer and quits; used by the ConfirmQuit popup.
+    pub fn quit_cancelling_downloads(&mut self) {
         for job in &self.downloads {
             job.request_cancel();
         }
+        self.downloads.clear();
+        self.popup = None;
         self.quit = true;
     }
 
@@ -519,17 +552,22 @@ impl AppState {
         }
     }
 
-    /// Footer line for the first running transfer, if any.
-    pub fn download_progress_line(&self) -> Option<String> {
-        let job = self.downloads.first()?;
-        let progress = job.progress();
-        Some(self.tr(Msg::DownloadProgress(
-            progress.machine.clone(),
-            progress.file.clone(),
-            progress.done,
-            progress.total,
-            progress.speed_bps,
-        )))
+    /// Footer lines for every running transfer, in start order.
+    pub fn download_progress_lines(&self) -> Vec<String> {
+        self.downloads
+            .iter()
+            .take(crate::proton::MAX_PARALLEL_DOWNLOADS)
+            .map(|job| {
+                let progress = job.progress();
+                self.tr(Msg::DownloadProgress(
+                    progress.machine.clone(),
+                    progress.file.clone(),
+                    progress.done,
+                    progress.total,
+                    progress.speed_bps,
+                ))
+            })
+            .collect()
     }
 
     pub fn set_data(&mut self, data: TuiData) {
@@ -658,6 +696,21 @@ impl AppState {
     pub fn own_writeups_rows(&self) -> Vec<&(String, crate::modules::writeups::WriteupEntry)> {
         self.data
             .own_writeups(&crate::config::ConfigManager::new().username())
+    }
+
+    /// Manually completed machines that have no own published writeup yet,
+    /// sorted by name. Auto-completed machines always own a writeup, so only
+    /// manual marks are considered.
+    pub fn completed_without_writeup(&self) -> Vec<&Machine> {
+        let auto = self.completed_auto();
+        let mut machines: Vec<&Machine> = self
+            .data
+            .machines
+            .iter()
+            .filter(|m| self.completed.iter().any(|s| s == &m.slug) && !auto.contains(&m.slug))
+            .collect();
+        machines.sort_by_key(|m| m.name.to_lowercase());
+        machines
     }
 
     /// Dismisses the result popup; returns true if a refresh was queued.
@@ -1024,6 +1077,19 @@ impl AppState {
         if self.popup.is_some() || self.report.is_some() || self.writeups_popup.is_some() {
             return;
         }
+        if self.downloads.len() >= crate::proton::MAX_PARALLEL_DOWNLOADS {
+            let message = self.tr(Msg::DownloadLimitReached(
+                crate::proton::MAX_PARALLEL_DOWNLOADS,
+            ));
+            self.report = Some(ActionReport {
+                title: self.tr(Msg::DownloadLimitTitle),
+                entries: vec![(ReportKind::Failure, message.clone())],
+                changed: false,
+                status: message,
+                download: None,
+            });
+            return;
+        }
         let Some((slug, name, download_url)) = self.selected_machine().map(|machine| {
             (
                 machine.slug.clone(),
@@ -1143,6 +1209,9 @@ impl AppState {
                 });
             }
             PopupKind::Descripcion | PopupKind::ConfirmDone | PopupKind::Help => {}
+            // Enter on the quit-confirmation popup is handled before
+            // `confirm_popup` is reached; keep the arm exhaustive.
+            PopupKind::ConfirmQuit => {}
         }
     }
 
@@ -1353,6 +1422,11 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
                     if app.popup.as_ref().map(|p| p.kind) == Some(PopupKind::ConfirmDone) =>
                 {
                     app.confirm_completed();
+                }
+                KeyCode::Enter
+                    if app.popup.as_ref().map(|p| p.kind) == Some(PopupKind::ConfirmQuit) =>
+                {
+                    app.quit_cancelling_downloads();
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if let Some(p) = app.popup.as_mut() {
@@ -1584,6 +1658,23 @@ mod tests {
         }
     }
 
+    /// Serializes tests that read or write the config file through
+    /// `ConfigManager::new()`. The first caller also redirects the config
+    /// directory to a temp path so the real `~/.nyx-tui` is never touched.
+    static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn config_guard() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let dir = std::env::temp_dir().join(format!("nyx-tui-tests-{}", std::process::id()));
+            std::env::set_var("NYX_TUI_CONFIG_DIR", dir);
+        });
+        CONFIG_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
     /// Restores the on-disk completed list even if an assertion unwinds.
     struct CompletedGuard(Vec<String>);
     impl Drop for CompletedGuard {
@@ -1607,6 +1698,7 @@ mod tests {
 
     #[test]
     fn mark_done_asks_with_direction_specific_wording() {
+        let _lock = config_guard();
         let (mut app, _guard) = app_with_one_machine();
         let was_marked = app.completed.contains(&"apex".to_string());
 
@@ -1657,6 +1749,7 @@ mod tests {
 
     #[test]
     fn download_dir_popup_prefills_the_current_directory() {
+        let _lock = config_guard();
         let (mut app, _guard) = app_with_one_machine();
         app.open_download_dir_popup();
         let popup = app.popup.as_ref().expect("folder popup");
@@ -1733,5 +1826,127 @@ mod tests {
         popup.push('x');
         popup.pop();
         assert_eq!(popup.buffers[2], "en");
+    }
+
+    fn app_with_downloads(count: usize) -> AppState {
+        // Callers hold `config_guard`; AppState::new reads the config file.
+        let data = TuiData {
+            machines: vec![machine_fixture()],
+            writeups: Vec::new(),
+        };
+        let mut app = AppState::new(data);
+        app.tab = Tab::Machines;
+        app.filter.clear();
+        app.selected = 0;
+        app.downloads = (0..count)
+            .map(|index| {
+                crate::proton::ProtonDownload::stub_for_tests(
+                    "APex",
+                    &format!("file{index}.ova"),
+                    0,
+                    100,
+                )
+            })
+            .collect();
+        app
+    }
+
+    #[test]
+    fn download_limit_blocks_third() {
+        let _lock = config_guard();
+        let mut app = app_with_downloads(crate::proton::MAX_PARALLEL_DOWNLOADS);
+        app.open_download_page();
+        let report = app.report.as_ref().expect("limit warning popup");
+        assert_eq!(report.entries.len(), 1);
+        assert!(matches!(report.entries[0].0, ReportKind::Failure));
+        assert!(report.entries[0]
+            .1
+            .contains(&crate::proton::MAX_PARALLEL_DOWNLOADS.to_string()));
+        assert!(app.pending_action.is_none());
+    }
+
+    #[test]
+    fn download_below_limit_is_queued() {
+        let _lock = config_guard();
+        let mut app = app_with_downloads(crate::proton::MAX_PARALLEL_DOWNLOADS - 1);
+        app.open_download_page();
+        assert!(app.report.is_none());
+        assert!(matches!(
+            app.pending_action.as_ref().map(|action| action.kind),
+            Some(ActionKind::Download)
+        ));
+    }
+
+    #[test]
+    fn quit_with_downloads_asks_first() {
+        let _lock = config_guard();
+        let mut app = app_with_downloads(1);
+        app.request_quit();
+        assert!(!app.quit);
+        let popup = app.popup.as_ref().expect("quit confirmation");
+        assert_eq!(popup.kind, PopupKind::ConfirmQuit);
+        assert!(popup.readonly);
+        assert!(popup.text.as_deref().is_some_and(|text| text.contains('1')));
+
+        // Esc dismisses without quitting.
+        app.popup = None;
+        assert!(!app.quit);
+
+        app.request_quit();
+        let job = app.downloads[0].clone();
+        app.quit_cancelling_downloads();
+        assert!(app.quit);
+        assert!(app.downloads.is_empty());
+        assert!(app.popup.is_none());
+        assert!(job.is_cancelled(), "confirming must cancel the transfer");
+    }
+
+    #[test]
+    fn quit_without_downloads_is_immediate() {
+        let _lock = config_guard();
+        let mut app = app_with_downloads(0);
+        app.request_quit();
+        assert!(app.quit);
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn download_progress_lines_lists_all() {
+        let _lock = config_guard();
+        let app = app_with_downloads(2);
+        let lines = app.download_progress_lines();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("file0.ova"));
+        assert!(lines[1].contains("file1.ova"));
+
+        let empty = app_with_downloads(0);
+        assert!(empty.download_progress_lines().is_empty());
+    }
+
+    #[test]
+    fn completed_without_writeup_excludes_writeup_owners() {
+        let _lock = config_guard();
+        let mut alpha = machine_fixture();
+        alpha.slug = "alpha".into();
+        alpha.name = "Alpha".into();
+        let mut beta = machine_fixture();
+        beta.slug = "beta".into();
+        beta.name = "Beta".into();
+        let data = TuiData {
+            machines: vec![alpha, beta],
+            writeups: vec![(
+                "beta".into(),
+                crate::modules::writeups::WriteupEntry {
+                    author: crate::config::ConfigManager::new().username(),
+                    ..Default::default()
+                },
+            )],
+        };
+        let mut app = AppState::new(data);
+        app.completed = vec!["alpha".into(), "beta".into()];
+        app.data.writeups[0].1.author = crate::config::ConfigManager::new().username();
+        let rows = app.completed_without_writeup();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].slug, "alpha");
     }
 }
