@@ -48,6 +48,12 @@ impl ConfigManager {
     pub fn new() -> Self {
         let dir = match std::env::var_os("NYX_TUI_CONFIG_DIR") {
             Some(dir) => PathBuf::from(dir),
+            // Unit tests never touch the real home config: the test profile
+            // points every manager at a per-process temp directory even when
+            // a test builds `AppState` before the suite's config guard runs.
+            None if cfg!(test) => {
+                std::env::temp_dir().join(format!("nyx-tui-tests-{}", std::process::id()))
+            }
             None => home::home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(CONFIG_DIR_NAME),
