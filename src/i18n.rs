@@ -120,6 +120,7 @@ pub enum Msg {
     ActionFailed(String),
     FetchFailed(String),
     DataRefreshed,
+    FirstBloodReportTitle(String),
     SlotsTaken,
     TakenBy(String),
     FlagTakenNotice(&'static str, String),
@@ -512,7 +513,11 @@ impl Msg {
                 Lang::Es => "Datos actualizados.",
             }
             .to_string(),
-            Msg::SlotsTaken => match lang {
+            Msg::FirstBloodReportTitle(machine) => match lang {
+        Lang::En => format!(" First blood — {machine} "),
+        Lang::Es => format!(" First blood — {machine} "),
+    },
+    Msg::SlotsTaken => match lang {
                 Lang::En => "First blood: ✗ BOTH SLOTS ALREADY TAKEN",
                 Lang::Es => "First blood: ✗ AMBOS HUECOS YA TOMADOS",
             }
@@ -525,7 +530,10 @@ impl Msg {
                 Lang::En => format!("{kind} flag: taken by {name}"),
                 Lang::Es => format!("Flag {kind}: tomado por {name}"),
             },
-            Msg::BloodHolders(user, root) => format!("user → {user} · root → {root}"),
+            Msg::BloodHolders(user, root) => match lang {
+                Lang::En => format!("user → {user} · root → {root}"),
+                Lang::Es => format!("usuario → {user} · root → {root}"),
+            },
             Msg::DescDifficulty(difficulty, os, pts_user, pts_root) => match lang {
                 Lang::En => format!(
                     "Difficulty: {difficulty} · OS: {os} · Points: {pts_user}/{pts_root}"

@@ -22,13 +22,13 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 
 | Machines | Progress |
 | :---: | :---: |
-| ![Machines tab: catalog with difficulty colors, tech tags and first-blood status](assets/dashboard-machines.png) | ![Progress tab: identity, statistics and your published writeups](assets/dashboard-progress.png) |
+| ![Machines tab: catalog with difficulty colors, tech tags and first-blood status](assets/dashboard-machines.png) | ![Progress tab: identity, statistics, your published writeups, and the done — no writeup table with the cursor inside it](assets/dashboard-progress-done.png) |
 | **Machine details** | **Community writeups** |
 | ![Machine details popup: difficulty, platform, MD5, tags and first-blood holders](assets/popup-details.png) | ![Community writeups popup: articles and videos with author, date and URL](assets/popup-writeups.png) |
 | **Keyboard shortcuts** | **Download folder** |
 | ![Keyboard shortcut panel with navigation, machines, progress and popup sections](assets/popup-help.png) | ![Download folder popup prefilled with an absolute path](assets/popup-download-dir.png) |
-| **First blood** | |
-| ![First blood report: both slots already taken, with the holders](assets/report-firstblood.png) | |
+| **First blood** | **Spanish interface** |
+| ![First blood report: both slots already taken, with the holders](assets/report-firstblood.png) | ![Spanish interface on the Machines tab](assets/dashboard-machines-es.png) |
 
 ## Features
 

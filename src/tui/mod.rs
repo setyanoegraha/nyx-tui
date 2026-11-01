@@ -1010,7 +1010,7 @@ impl AppState {
         let root_open = machine.root_slot_open();
         if !user_open && !root_open {
             self.report = Some(ActionReport {
-                title: format!(" First blood — {} ", machine.name),
+                title: self.tr(Msg::FirstBloodReportTitle(machine.name.clone())),
                 entries: vec![
                     (ReportKind::Failure, self.tr(Msg::SlotsTaken)),
                     (

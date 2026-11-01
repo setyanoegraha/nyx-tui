@@ -22,13 +22,13 @@ Un comando, una pantalla: al ejecutar `nyx` se abre el dashboard. Escrito en **R
 
 | Machines | Progress |
 | :---: | :---: |
-| ![Pestaña Machines: catálogo con colores de dificultad, etiquetas y estado del first-blood](assets/dashboard-machines-es.png) | ![Pestaña Progress: identidad, estadísticas y tus writeups publicados](assets/dashboard-progress-es.png) |
+| ![Pestaña Machines: catálogo con colores de dificultad, etiquetas y estado del first-blood](assets/dashboard-machines-es.png) | ![Pestaña Progress: identidad, estadísticas, tus writeups publicados y la tabla hechas — sin writeup con el cursor dentro](assets/dashboard-progress-done-es.png) |
 | **Detalles de la máquina** | **Writeups de la comunidad** |
 | ![Ventana de detalles: dificultad, plataforma, MD5, etiquetas y poseedores del first-blood](assets/popup-details-es.png) | ![Ventana de writeups: artículos y vídeos con autor, fecha y URL](assets/popup-writeups-es.png) |
 | **Atajos de teclado** | **Carpeta de descargas** |
 | ![Panel de atajos con secciones de navegación, máquinas, progreso y ventanas](assets/popup-help-es.png) | ![Ventana de carpeta de descargas con una ruta absoluta](assets/popup-download-dir-es.png) |
-| **First blood** | |
-| ![Informe de first blood: ambos huecos ya tomados, con sus poseedores](assets/report-firstblood-es.png) | |
+| **First blood** | **Interfaz en inglés** |
+| ![Informe de first blood: ambos huecos ya tomados, con sus poseedores](assets/report-firstblood-es.png) | ![Interfaz en inglés en la pestaña Machines](assets/dashboard-machines.png) |
 
 ## Características
 
