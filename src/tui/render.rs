@@ -410,13 +410,14 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
             ],
         )
         .header(header)
+        .row_highlight_style(Style::new().bg(HL_BG).add_modifier(Modifier::BOLD))
         .block(
             Block::bordered()
                 .title(Span::styled(
                     format!(
                         "{}{}",
+                        if done_focused { ">" } else { "" },
                         render_msg(lang, Msg::DoneNoWriteupTitle(done_rows.len())),
-                        if done_focused { " ▸" } else { "" }
                     ),
                     Style::new().fg(ACCENT).bold(),
                 ))
@@ -903,8 +904,8 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(
-            rendered.contains("no writeup") && rendered.contains('▸'),
-            "focused done table should carry the ▸ marker"
+            rendered.contains("> Done") && rendered.contains("no writeup"),
+            "focused done table should carry the focus marker; rendered:\n{rendered}"
         );
     }
 
