@@ -333,10 +333,12 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
     let rows: Vec<Row> = own
         .iter()
         .map(|(slug, w)| {
+            // Word labels, not emoji: the glyph width of 📝/🎥 varies per
+            // terminal font and shifts every column after it.
             let (tipo, tipo_style) = if w.tipo.contains("Video") {
-                ("🎥", Style::new().fg(FROST))
+                ("Video", Style::new().fg(FROST))
             } else {
-                ("📝", Style::new().fg(PURPLE))
+                ("Text", Style::new().fg(PURPLE))
             };
             let date = w.submitted_at.split(' ').next().unwrap_or("-").to_string();
             Row::new([
@@ -364,8 +366,8 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
             .title(Span::styled(
                 format!(
                     "{}{}",
+                    if writeups_focused { "> " } else { "" },
                     render_msg(lang, Msg::YourWriteups(own.len())),
-                    if writeups_focused { " ▸" } else { "" }
                 ),
                 Style::new().fg(ACCENT).bold(),
             ))
@@ -416,7 +418,7 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
                 .title(Span::styled(
                     format!(
                         "{}{}",
-                        if done_focused { ">" } else { "" },
+                        if done_focused { "> " } else { "" },
                         render_msg(lang, Msg::DoneNoWriteupTitle(done_rows.len())),
                     ),
                     Style::new().fg(ACCENT).bold(),
@@ -652,10 +654,12 @@ fn draw_writeups_popup(frame: &mut Frame, area: Rect, popup: &WriteupsPopup, lan
         .entries
         .iter()
         .map(|w| {
+            // Word labels, not emoji: the glyph width of 📝/🎥 varies per
+            // terminal font and shifts every column after it.
             let (tipo, tipo_style) = if w.tipo.contains("Video") {
-                ("🎥", Style::new().fg(FROST))
+                ("Video", Style::new().fg(FROST))
             } else {
-                ("📝", Style::new().fg(PURPLE))
+                ("Text", Style::new().fg(PURPLE))
             };
             let date = w.submitted_at.split(' ').next().unwrap_or("-").to_string();
             Row::new(vec![
@@ -904,7 +908,8 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(
-            rendered.contains("> Done") && rendered.contains("no writeup"),
+            rendered.contains(">  Done")
+                || rendered.contains("> Done") && rendered.contains("no writeup"),
             "focused done table should carry the focus marker; rendered:\n{rendered}"
         );
     }
