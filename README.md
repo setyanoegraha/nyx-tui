@@ -34,12 +34,12 @@ One command, one screen: running `nyx` opens the dashboard. Written in pure **Ru
 
 * **One command** — `nyx` opens the dashboard: catalog, first-blood flags, writeups and your leaderboard position in one screen.
 * **Machines** — the full catalog with the site's official difficulty colors (Low/Easy/Medium/Hard), OS (Linux/Windows), tech tags, and first-blood status per machine. Instant `/` filtering and `s` sorting (site order → name → date → difficulty).
-* **In-app downloads** — `d` solves the CAPTCHA and streams the machine archive from Proton Drive to your download folder, with speed and size in the footer. One attempt per press; the platform limit is reported, never retried.
+* **In-app downloads** — `d` solves the CAPTCHA and streams the machine archive from Proton Drive to your download folder, with speed and size in the footer. One attempt per press; the platform limit is reported, never retried. **At most two transfers run at once** — a third `d` shows a warning popup, and each running transfer gets its own progress line in the footer. Quitting while transfers run asks for confirmation and cancels them only if you confirm.
 * **First-blood flag submission** — `f` opens a popup to submit User and Root flags (MD5). Slots already taken are shown as read-only notices; open slots are ready for your MD5 hash. Your username is attached automatically.
 * **First-blood filter** — `b` shows only machines with an open first-blood slot, so you can be the first to pwn a fresh release.
 * **Writeups** — per-machine community writeups popup (`w`): articles 📝 and videos 🎥 with author, language and date. Submit your own (`u`) — the submission popup uses pickers for **type** (Text/Video, single-select) and **language** (all 62 codes of vulnyx.com, multi-select), so nothing gets mistyped.
 * **Completed tracking** — machines you finished turn `✓` green in the list: automatic when one of your writeups is approved on the site, or manually per machine with `m` (confirmation required, persisted locally). `x` hides completed machines so only pending ones remain.
-* **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules, including the site's staff exclusions so ranks match vulnyx.com).
+* **Progress** — your first bloods, writeups and leaderboard position (computed from public data with the site's own scoring rules, including the site's staff exclusions so ranks match vulnyx.com). Below *Your writeups*, a **Done — no writeup** table lists machines you marked completed that have no writeup yet; both tables scroll with the same `j`/`k` cursor and mark the focused one with `▸`.
 * **Username management** — `a` opens the username popup; whatever you set is attached to all submissions and used for your leaderboard position.
 * **UI language** — `l` toggles the whole interface between **English** and **Español** instantly (status messages, popups, hints, everything). Your choice is saved and restored on every launch.
 * **Shortcut reference** — `h` opens a scrollable panel listing every key, grouped by context.
@@ -61,15 +61,15 @@ Grab the archive for your platform from the [Releases](https://github.com/setyan
 
 | Platform | Archive |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux arm64 | `nyx-v0.3.0-aarch64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.3.0-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.3.0-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.3.0-x86_64-pc-windows-msvc.zip` |
-| Windows arm64 | `nyx-v0.3.0-aarch64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.3.1-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `nyx-v0.3.1-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.3.1-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.3.1-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.3.1-x86_64-pc-windows-msvc.zip` |
+| Windows arm64 | `nyx-v0.3.1-aarch64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.3.1-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
@@ -136,7 +136,7 @@ Two keyboard-driven tabs — **Machines** and **Progress**:
 | `i` / `Enter` | **Machines** — description popup with tags, platforms, MD5, first-blood holders |
 | `a` | **Anywhere** — username popup |
 | `l` | **Anywhere** — toggle UI language EN/ES (persisted) |
-| `Enter` | **Progress** — open the selected writeup in your browser |
+| `Enter` | **Progress** — open the selected writeup in your browser (writeup rows only) |
 | `r` | Re-fetch all data |
 | `q` / `Esc` / `Ctrl-C` | Quit |
 
@@ -154,9 +154,9 @@ VulnyX gates machine downloads behind a 5-character CAPTCHA image. nyx-tui reads
 3. If the image cannot be read (the site changed its font), or Proton refuses the transfer, nyx opens
    the link in your browser instead so you can continue by hand.
 
-The platform allows **2 VM downloads per minute**; nyx makes exactly one attempt per `d` press and
+nyx allows **at most two simultaneous transfers**; a third `d` is refused with a warning popup until one finishes. The platform itself allows **2 VM downloads per minute**; nyx makes exactly one attempt per `d` press and
 reports the limit instead of retrying. Partial transfers use a `.part` file and are discarded when the
-download fails or you quit, so there is no resume.
+download fails or you quit, so there is no resume. Quitting with transfers running opens a confirmation popup: `Enter` cancels every transfer and exits, `Esc` keeps them running.
 
 ### Where Your Data Lives
 

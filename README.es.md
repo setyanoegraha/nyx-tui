@@ -61,15 +61,15 @@ Descarga el archivo de tu plataforma desde la página de [Releases](https://gith
 
 | Plataforma | Archivo |
 | :--- | :--- |
-| Linux x86_64 | `nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux arm64 | `nyx-v0.3.0-aarch64-unknown-linux-gnu.tar.gz` |
-| macOS Apple Silicon | `nyx-v0.3.0-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `nyx-v0.3.0-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `nyx-v0.3.0-x86_64-pc-windows-msvc.zip` |
-| Windows arm64 | `nyx-v0.3.0-aarch64-pc-windows-msvc.zip` |
+| Linux x86_64 | `nyx-v0.3.1-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `nyx-v0.3.1-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Apple Silicon | `nyx-v0.3.1-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `nyx-v0.3.1-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `nyx-v0.3.1-x86_64-pc-windows-msvc.zip` |
+| Windows arm64 | `nyx-v0.3.1-aarch64-pc-windows-msvc.zip` |
 
 ```bash
-tar xzf nyx-v0.3.0-x86_64-unknown-linux-gnu.tar.gz
+tar xzf nyx-v0.3.1-x86_64-unknown-linux-gnu.tar.gz
 install -m 755 nyx ~/.local/bin/nyx
 ```
 
@@ -136,7 +136,7 @@ Dos pestañas manejadas por teclado — **Machines** y **Progress**:
 | `i` / `Enter` | **Machines** — ventana de descripción con etiquetas, plataformas, MD5 y poseedores del first-blood |
 | `a` | **En cualquier pestaña** — ventana de nombre de usuario |
 | `l` | **En cualquier pestaña** — alternar idioma EN/ES (se guarda) |
-| `Enter` | **Progress** — abrir el writeup seleccionado en tu navegador |
+| `Enter` | **Progress** — abrir el writeup seleccionado en tu navegador (solo filas de writeup) |
 | `r` | Volver a obtener todos los datos |
 | `q` / `Esc` / `Ctrl-C` | Salir |
 
@@ -155,9 +155,10 @@ VulnyX protege la descarga de máquinas con una imagen CAPTCHA de 5 caracteres. 
 3. Si no puede leer la imagen (el sitio cambió la fuente) o Proton rechaza la transferencia, abre el
    enlace en tu navegador para que continúes a mano.
 
-La plataforma permite **2 descargas por minuto**; nyx hace un único intento por pulsación de `d` e informa
+nyx permite **como máximo dos transferencias simultáneas**; un tercer `d` se rechaza con un aviso hasta que termine una. La plataforma permite **2 descargas por minuto**; nyx hace un único intento por pulsación de `d` e informa
 del límite en vez de reintentar. Las transferencias parciales usan un archivo `.part` que se descarta al
-fallar o al salir, así que no hay reanudación.
+fallar o al salir, así que no hay reanudación. Salir con transferencias activas abre una confirmación:
+`Enter` cancela todo y sale, `Esc` las mantiene en marcha.
 
 ### Dónde viven tus datos
 
