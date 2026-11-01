@@ -782,7 +782,8 @@ const HELP_TEXT_EN: &str = "[ Navigation ]
   s              cycle the sort order
 
 [ Progress ]
-  Enter          open the selected writeup in the browser
+  j / k          scroll the writeups and the done — no writeup table
+  Enter          open the selected writeup in the browser (writeup rows)
 
 [ Anywhere ]
   a              username
@@ -818,7 +819,8 @@ const HELP_TEXT_ES: &str = "[ Navegación ]
   s              cambiar el orden
 
 [ Progreso ]
-  Enter          abrir el writeup seleccionado en el navegador
+  j / k          desplazar los writeups y la tabla hechas — sin writeup
+  Enter          abrir el writeup seleccionado (filas de writeup)
 
 [ En cualquier lugar ]
   a              usuario
