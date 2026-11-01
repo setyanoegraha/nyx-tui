@@ -1219,9 +1219,9 @@ impl AppState {
         match self.tab {
             Tab::Machines => self.visible_machines().len(),
             Tab::Progress => self
-                .data
-                .own_writeups(&crate::config::ConfigManager::new().username())
-                .len(),
+                .own_writeups_rows()
+                .len()
+                .saturating_add(self.completed_without_writeup().len()),
         }
     }
 
@@ -1607,7 +1607,12 @@ fn handle_key(app: &mut AppState, key: crossterm::event::KeyEvent) {
             KeyCode::Char('i') => app.open_descripcion_popup(),
             KeyCode::Enter => match app.tab {
                 Tab::Machines => app.open_descripcion_popup(),
-                Tab::Progress => app.open_selected_writeup_link(),
+                Tab::Progress => {
+                    // Rows past the writeups belong to the done table.
+                    if app.selected < app.own_writeups_rows().len() {
+                        app.open_selected_writeup_link();
+                    }
+                }
             },
             _ => {}
         },
@@ -1899,6 +1904,35 @@ mod tests {
         assert!(app.downloads.is_empty());
         assert!(app.popup.is_none());
         assert!(job.is_cancelled(), "confirming must cancel the transfer");
+    }
+
+    #[test]
+    fn progress_cursor_spans_both_tables() {
+        let _lock = config_guard();
+        let mut alpha = machine_fixture();
+        alpha.slug = "alpha".into();
+        alpha.name = "Alpha".into();
+        let mut beta = machine_fixture();
+        beta.slug = "beta".into();
+        beta.name = "Beta".into();
+        let data = TuiData {
+            machines: vec![alpha, beta],
+            writeups: Vec::new(),
+        };
+        let mut app = AppState::new(data);
+        app.tab = Tab::Progress;
+        app.completed = vec!["alpha".into(), "beta".into()];
+
+        assert_eq!(app.own_writeups_rows().len(), 0);
+        assert_eq!(app.completed_without_writeup().len(), 2);
+        assert_eq!(app.row_count(), 2);
+
+        app.move_down();
+        assert_eq!(app.selected, 1);
+        app.move_down();
+        assert_eq!(app.selected, 1, "cursor clamps at the last row");
+        app.move_up();
+        assert_eq!(app.selected, 0);
     }
 
     #[test]

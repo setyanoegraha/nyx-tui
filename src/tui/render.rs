@@ -321,6 +321,8 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
 
     // ---- right: your writeups ------------------------------------------
     let own = app.own_writeups_rows();
+    let writeups_selected = app.selected.min(own.len().saturating_sub(1));
+    let writeups_focused = app.selected < own.len();
     let header = Row::new([
         app.tr(Msg::ColMachine),
         app.tr(Msg::ColType),
@@ -360,17 +362,29 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
     .block(
         Block::bordered()
             .title(Span::styled(
-                render_msg(lang, Msg::YourWriteups(own.len())),
+                format!(
+                    "{}{}",
+                    render_msg(lang, Msg::YourWriteups(own.len())),
+                    if writeups_focused { " ▸" } else { "" }
+                ),
                 Style::new().fg(ACCENT).bold(),
             ))
             .border_style(Style::new().dim()),
     );
 
-    let mut state = TableState::default().with_selected(Some(app.selected));
+    let mut state = TableState::default().with_selected(Some(writeups_selected));
+    let table = if writeups_focused {
+        table
+    } else {
+        table.row_highlight_style(Style::new())
+    };
     frame.render_stateful_widget(table, writeups_area, &mut state);
 
     // Done machines that still lack a writeup of yours.
     if !done_rows.is_empty() {
+        let done_offset = own.len();
+        let done_focused = app.selected >= done_offset;
+        let done_index = app.selected.saturating_sub(done_offset);
         let header = Row::new([
             app.tr(Msg::ColMachine),
             app.tr(Msg::ColDifficulty),
@@ -399,12 +413,17 @@ fn draw_progress(frame: &mut Frame, area: Rect, app: &AppState) {
         .block(
             Block::bordered()
                 .title(Span::styled(
-                    render_msg(lang, Msg::DoneNoWriteupTitle(done_rows.len())),
+                    format!(
+                        "{}{}",
+                        render_msg(lang, Msg::DoneNoWriteupTitle(done_rows.len())),
+                        if done_focused { " ▸" } else { "" }
+                    ),
                     Style::new().fg(ACCENT).bold(),
                 ))
                 .border_style(Style::new().dim()),
         );
-        let mut done_state = TableState::default();
+        let mut done_state =
+            TableState::default().with_selected(done_focused.then_some(done_index));
         frame.render_stateful_widget(done_table, done_area, &mut done_state);
     }
 }
@@ -840,6 +859,53 @@ mod tests {
         assert_eq!(wrap_text("aa bb cc", 5), vec!["aa bb", "cc"]);
         assert_eq!(wrap_text("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
         assert_eq!(wrap_text("", 10), vec![String::new()]);
+    }
+
+    #[test]
+    fn progress_tab_renders_done_without_writeup_table() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let done = crate::modules::machines::Machine {
+            slug: "zzdone".into(),
+            name: "ZZDone".into(),
+            difficulty: "Easy".into(),
+            ..Default::default()
+        };
+        let data = crate::tui::TuiData {
+            machines: vec![done],
+            writeups: Vec::new(),
+        };
+        let mut app = crate::tui::AppState::new(data);
+        app.tab = crate::tui::Tab::Progress;
+        app.completed = vec!["zzdone".into()];
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            rendered.contains("Done") && rendered.contains("no writeup"),
+            "done-without-writeup table title missing; rendered:\n{rendered}"
+        );
+        assert!(rendered.contains("ZZDone"), "machine row missing");
+
+        // The shared cursor continues into the done table once it passes the
+        // (empty) writeups rows, and the title marks the focused table.
+        app.selected = 0;
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            rendered.contains("no writeup") && rendered.contains('▸'),
+            "focused done table should carry the ▸ marker"
+        );
     }
 
     #[test]
