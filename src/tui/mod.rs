@@ -1673,15 +1673,19 @@ mod tests {
     /// on `CONFIG_LOCK` so the shared temp file is deterministic.
     fn config_guard() -> std::sync::MutexGuard<'static, ()> {
         use std::sync::Once;
+        // Lock first: the one-time directory reset below must never run while
+        // another test holds the lock and is midway through a config write.
+        let guard = CONFIG_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             let dir = std::env::temp_dir().join(format!("nyx-tui-tests-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
+            let _ = std::fs::create_dir_all(&dir);
             std::env::set_var("NYX_TUI_CONFIG_DIR", dir);
         });
-        CONFIG_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        guard
     }
 
     /// Restores the on-disk completed list even if an assertion unwinds.
@@ -1747,6 +1751,7 @@ mod tests {
 
     #[test]
     fn link_hints_stay_documented() {
+        let _lock = config_guard();
         let (mut app, _guard) = app_with_one_machine();
         app.open_help_popup();
         let popup = app.popup.as_ref().expect("help popup");
