@@ -1668,11 +1668,15 @@ mod tests {
     /// directory to a temp path so the real `~/.nyx-tui` is never touched.
     static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Redirects the config dir for the whole test binary, before any test
+    /// reads it. Runs on first use; every config-touching test then serializes
+    /// on `CONFIG_LOCK` so the shared temp file is deterministic.
     fn config_guard() -> std::sync::MutexGuard<'static, ()> {
         use std::sync::Once;
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             let dir = std::env::temp_dir().join(format!("nyx-tui-tests-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
             std::env::set_var("NYX_TUI_CONFIG_DIR", dir);
         });
         CONFIG_LOCK
@@ -1705,7 +1709,9 @@ mod tests {
     fn mark_done_asks_with_direction_specific_wording() {
         let _lock = config_guard();
         let (mut app, _guard) = app_with_one_machine();
-        let was_marked = app.completed.contains(&"apex".to_string());
+        // Start from a known state instead of whatever the shared config had.
+        app.completed.clear();
+        let was_marked = false;
 
         app.request_toggle_completed();
         let popup = app.popup.as_ref().expect("confirmation popup");
