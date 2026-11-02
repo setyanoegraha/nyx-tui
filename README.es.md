@@ -201,6 +201,12 @@ Proyectos hermanos:
 
 ---
 
+## Licencia
+
+MIT — ver [LICENSE](LICENSE).
+
+---
+
 Hecho con ❤️ por [Ouba](https://github.com/setyanoegraha).
 
 *¡Happy hacking en VulNyx!*
